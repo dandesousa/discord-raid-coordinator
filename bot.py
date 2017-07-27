@@ -3,6 +3,7 @@ import discord
 import json
 import sys
 import time
+import pytz
 from datetime import datetime, timedelta, timezone
 
 """
@@ -109,9 +110,9 @@ async def start_raid_group(user, message_id):
         # get the message
         announcement_channel = get_announcement_channel(server)
         message = await client.get_message(announcement_channel, message_id)
-        offset = datetime.now() - datetime.utcnow()
         expiration_dt = message.timestamp + timedelta(seconds=settings['raid_group_duration_seconds'])
-        expiration_dt += offset
+        zone = pytz.timezone('US/Eastern')
+        expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
 
         # post a message
         content = """**This raid was started by {}.**
@@ -119,7 +120,7 @@ async def start_raid_group(user, message_id):
 You can leave this raid by typing `$leaveraid` in this channel.
 
 This channel will disappear at **{}**, or if it all members leave.
-""".format(user.name, expiration_dt.strftime("%Y-%m-%d %H:%M:%S"))
+""".format(user.name, expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p"))
         await client.send_message(channel, content)
         return channel
 
