@@ -154,24 +154,18 @@ async def invite_user_to_raid(channel, user):
 
 
     # sends a message to the raid channel the user was added
-    num_members = num_members_in_raid(channel)
-    await client.send_message(channel, '{} has joined the raid! *[{} trainer(s)]*'.format(user.mention, num_members))
+    await client.send_message(channel, '{} has joined the raid!'.format(user.mention))
 
 
 async def uninvite_user_from_raid(channel, user):
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
-    num_members = num_members_in_raid(channel)
-    await client.send_message(channel, '{} has left the raid! *[{} trainer(s)]*'.format(user.mention, num_members))
+    await client.send_message(channel, '{} has left the raid!'.format(user.mention))
 
     # remove the messages emoji
     server = channel.server
     announcement_message = await get_announcement_message(channel)
     await client.remove_reaction(announcement_message, get_join_emoji(server), user)
-
-    # kill the channel if no one is left
-    if not num_members:
-        await end_raid_group(channel)
 
 
 async def cleanup_raid_channels():
@@ -181,7 +175,7 @@ async def cleanup_raid_channels():
             for channel in channels:
                 if not is_open(channel):
                     expired = await is_raid_expired(channel)
-                    if expired:
+                    if expired or not num_members_in_raid(channel):
                         await end_raid_group(channel)
         await asyncio.sleep(60)
 
