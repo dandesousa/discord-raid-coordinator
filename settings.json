@@ -1,0 +1,7 @@
+{
+    "announcement_channel": "rotom-test",
+    "backup_raid_channel": "raid-coordination",
+    "raid_group_prefix": "raid_group",
+    "raid_group_duration_seconds": 150,
+    "token": ""
+}
