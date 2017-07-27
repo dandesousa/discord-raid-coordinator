@@ -142,21 +142,26 @@ async def end_raid_group(channel):
     channel = await client.edit_channel(channel, topic=None)
 
 
+def num_members_in_raid(channel):
+    return sum(1 for target, _ in channel.overwrites if isinstance(target, discord.User))
+
+
 async def invite_user_to_raid(channel, user):
-    num_members = len(channel.overwrites) - 2 + 1
     # adds an overwrite for the user
     perms = discord.PermissionOverwrite(read_messages=True)
     await client.edit_channel_permissions(channel, user, perms)
 
+
     # sends a message to the raid channel the user was added
+    num_members = num_members_in_raid(channel)
     await client.send_message(channel, '{} has joined the raid! *[{} trainer(s)]*'.format(user.mention, num_members))
 
 
 async def uninvite_user_from_raid(channel, user):
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
-    members_remaining = len(channel.overwrites) - 2
-    await client.send_message(channel, '{} has left the raid! *[{} trainer(s)]*'.format(user.mention, members_remaining))
+    num_members = num_members_in_raid(channel)
+    await client.send_message(channel, '{} has left the raid! *[{} trainer(s)]*'.format(user.mention, num_members))
 
     # remove the messages emoji
     server = channel.server
@@ -164,7 +169,7 @@ async def uninvite_user_from_raid(channel, user):
     await client.remove_reaction(announcement_message, get_join_emoji(server), user)
 
     # kill the channel if no one is left
-    if members_remaining == 0:
+    if not num_members:
         await end_raid_group(channel)
 
 
@@ -209,16 +214,16 @@ async def on_message(message):
     channel = message.channel
     user = message.author
     if is_announcement_channel(channel) and is_raid_start_message(message):
-        raid_message = await client.send_message(creation_channel, 'Starting raid group...')
-        raid_channel = await start_raid_group(message.author, raid_message.id)
+        raid_message = await client.send_message(channel, 'Starting raid group...')
+        raid_channel = await start_raid_group(user, raid_message.id)
         if raid_channel:
             # update the raid announcement message to include the raid and the channel
             # this won't double mention a user because its an edit, not a send
-            content = '{} started {} for:\n\n *{}* \n\nReact now to join the raid!'.format(message.author.name, raid_channel.mention, message.content)
+            content = '{} started {} for:\n\n *{}* \n\nReact now to join the raid!'.format(user.name, raid_channel.mention, message.content)
             raid_message = await client.edit_message(raid_message, content)
 
             # invte the member
-            await invite_user_to_raid(raid_channel, message.author)
+            await invite_user_to_raid(raid_channel, user)
 
             # add a join reaction to the message
             join_emoji = get_join_emoji(server)
@@ -230,7 +235,7 @@ async def on_message(message):
             m = await client.edit_message(raid_message, content)
             await client.add_reaction(m, '\U0001F61F')  # frowning
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
-        await uninvite_user_from_raid(message.channel, message.author)
+        await uninvite_user_from_raid(channel, user)
 
 
 client.run(settings['token'])
