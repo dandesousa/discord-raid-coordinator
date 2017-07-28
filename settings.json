@@ -1,10 +1,10 @@
 {
     "raid_viewer_roles": ["raid-moderator"],
     "bot_cleanup_interval_seconds": 60,
-    "bot_reminder_interval_seconds": 600,
+    "bot_reminder_interval_seconds": 0,
     "announcement_channel": "rotom-test",
     "backup_raid_channel": "raid-coordination",
     "raid_group_prefix": "raid_group",
-    "raid_group_duration_seconds": 30,
+    "raid_group_duration_seconds": 1500,
     "token": "MzM5NDY0Nzg0NzU4MDQ2NzMx.DFrTLQ.7Lc3c00-vpZZ9liEG79ijVLwdaw"
 }

@@ -281,6 +281,9 @@ async def list_raid_members(channel):
 
 
 async def remind_announcement_channel():
+    if not settings['bot_reminder_interval_seconds']:
+        return
+
     await client.wait_until_ready()
     while not client.is_closed:
         for server in client.servers:
