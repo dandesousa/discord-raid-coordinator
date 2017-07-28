@@ -50,6 +50,16 @@ def get_raid_start_embed(creator_str, expiration_str):
     return embed
 
 
+def get_raid_reminder_embed(creator_str, expiration_str, num_members):
+    embed = discord.Embed()
+    embed.add_field(name='members', value=num_members, inline=True)
+    embed.add_field(name='creator', value=creator_str, inline=True)
+    embed.add_field(name='channel expires', value=expiration_str)
+    embed.color = discord.Color.default()
+    embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
+    return embed
+
+
 def get_raid_end_embed(channel):
     embed = discord.Embed()
     embed.title = 'This raid has ended'
@@ -87,9 +97,10 @@ def get_raid_members_embed(members):
     return embed
 
 
-def get_raid_summary_embed(creator, expiration_dt):
+def get_raid_summary_embed(creator, expiration_dt, text):
     embed = discord.Embed()
     embed.title = 'Welcome to this raid channel!'
+    embed.description = text
     embed.add_field(name='creator', value=creator.mention)
     embed.add_field(name='channel expires', value=expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p"))
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
@@ -131,6 +142,23 @@ def is_open(channel):
     return channel.topic is None
 
 
+async def post_raid_reminder(raid_channel):
+    announcement_channel = get_announcement_channel(raid_channel.server)
+    message = await get_announcement_message(raid_channel)
+    if message.embeds:
+        embed = message.embeds[0]
+        num_members = num_members_in_raid(raid_channel)
+        creator_str = embed['fields'][0]['value']
+        expires_str = embed['fields'][1]['value']
+        embed = get_raid_reminder_embed(creator_str, expires_str, num_members_in_raid(raid_channel))
+
+        # send it once, then update it
+        reminder_message = await client.send_message(announcement_channel, "", embed=embed)
+        await client.edit_message(reminder_message, message.content, embed=embed)
+
+        # add shortcut reactions for commands
+        await client.add_reaction(reminder_message, get_join_emoji())
+
 async def get_announcement_message(raid_channel):
     """Gets the message that created this channel."""
     server = raid_channel.server
@@ -170,7 +198,7 @@ def get_raid_expiration(message):
     return expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
 
-async def start_raid_group(user, message_id):
+async def start_raid_group(user, message_id, description):
     # get the server
     server = user.server
 
@@ -189,7 +217,7 @@ async def start_raid_group(user, message_id):
         expiration_dt = message.timestamp + timedelta(seconds=settings['raid_group_duration_seconds'])
         zone = pytz.timezone('US/Eastern')
         expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
-        summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, expiration_dt))
+        summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, expiration_dt, description))
 
         # add shortcut reactions for commands
         await client.add_reaction(summary_message, get_leave_emoji())
@@ -252,23 +280,39 @@ async def list_raid_members(channel):
     await client.send_message(channel, embed=get_raid_members_embed(members))
 
 
-async def cleanup_raid_channels():
-    while True:
+async def remind_announcement_channel():
+    await client.wait_until_ready()
+    while not client.is_closed:
         for server in client.servers:
+            announcement_channel = get_announcement_channel(server)
+            channels = get_raid_channels(server)
+            for channel in channels:
+                if not is_open(channel):
+                    expired = await is_raid_expired(channel)
+                    if not expired:
+                        await post_raid_reminder(channel)
+
+        await asyncio.sleep(settings['bot_reminder_interval_seconds'])
+
+async def cleanup_raid_channels():
+    await client.wait_until_ready()
+    while not client.is_closed:
+        for server in client.servers:
+            announcement_channel = get_announcement_channel(server)
             channels = get_raid_channels(server)
             for channel in channels:
                 if not is_open(channel):
                     expired = await is_raid_expired(channel)
                     if expired or not num_members_in_raid(channel):
                         await end_raid_group(channel)
-        await asyncio.sleep(60)
+
+        await asyncio.sleep(settings['bot_cleanup_interval_seconds'])
 
 
 @client.event
 async def on_ready():
     print('Logged in as {}'.format(client.user.name))
     print('------')
-    await cleanup_raid_channels()
 
 
 @client.event
@@ -283,7 +327,7 @@ async def on_reaction_add(reaction, user):
     if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
         raid_channel = get_raid_channel(message)
         announcement_message = await get_announcement_message(raid_channel)
-        if is_raid_channel(raid_channel) and message.id == announcement_message.id:
+        if is_raid_channel(raid_channel) and announcement_message:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
             if raid_channel.overwrites_for(user).is_empty():
@@ -312,7 +356,8 @@ async def on_reaction_remove(reaction, user):
     if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
         message = reaction.message
         raid_channel = get_raid_channel(message)
-        if is_raid_channel(raid_channel):
+        announcement_message = await get_announcement_message(raid_channel)
+        if is_raid_channel(raid_channel) and announcement_message:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
             if not raid_channel.overwrites_for(user).is_empty():
@@ -330,7 +375,7 @@ async def on_message(message):
     if is_announcement_channel(channel) and is_raid_start_message(message):
         # send the message, then edit the raid to avoid a double notification
         raid_message = await client.send_message(channel, "Looking for open channels...")
-        raid_channel = await start_raid_group(user, raid_message.id)
+        raid_channel = await start_raid_group(user, raid_message.id, message.clean_content)
         if raid_channel:
             raid_message = await client.edit_message(raid_message,
                                                      '*"{}"*\n\n**in:** {}'.format(message.content, raid_channel.mention),
@@ -346,7 +391,6 @@ async def on_message(message):
             # notify them to use the backup raid channel, this won't be monitored
             backup_channel = get_backup_channel(server)
 
-            #content = 'Unable to start a dedicated raid channel, all available channels are full. Please coordinate this raid in the {} channel'.format(backup_channel.mention)
             m = await client.edit_message(raid_message,
                                           '*"{}"*\n\n**in:** {}'.format(message.content, backup_channel.mention),
                                           embed=get_raid_busy_embed(backup_channel))
@@ -356,5 +400,6 @@ async def on_message(message):
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
 
-
+client.loop.create_task(cleanup_raid_channels())
+client.loop.create_task(remind_announcement_channel())
 client.run(settings['token'])
