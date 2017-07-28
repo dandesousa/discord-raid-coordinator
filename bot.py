@@ -34,21 +34,12 @@ def get_backup_channel(server):
     return discord.utils.find(lambda c: c.name == settings['backup_raid_channel'], server.channels)
 
 
-def get_raid_starting_embed(text):
-    embed = discord.Embed()
-    embed.title = "Starting raid group..."
-    embed.description = text
-    return embed
-
-
-def get_raid_start_embed(creator_str, channel, text=None):
+def get_raid_start_embed(creator_str, expiration_str):
     embed = discord.Embed()
     embed.title = 'A raid has started!'
-    if text:
-        embed.description = text
     embed.color = discord.Color.green()
     embed.add_field(name='creator', value=creator_str, inline=True)
-    embed.add_field(name='channel', value=channel.mention, inline=True)
+    embed.add_field(name='channel expires', value=expiration_str)
     embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
     return embed
 
@@ -92,7 +83,7 @@ def get_raid_members_embed(members):
 
 def get_raid_summary_embed(creator, expiration_dt):
     embed = discord.Embed()
-    embed.title = 'Welcome to the this raid channel!'
+    embed.title = 'Welcome to this raid channel!'
     embed.add_field(name='creator', value=creator.mention)
     embed.add_field(name='channel expires', value=expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p"))
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
@@ -129,21 +120,6 @@ def is_raid_channel(channel):
     return channel and channel in get_raid_channels(channel.server)
 
 
-async def update_raid_announcement(raid_channel, creator=None, text=None):
-    """Updates the raid announcement for the raid channel."""
-    message = await get_announcement_message(raid_channel)
-    if message.embeds:
-        embed = message.embeds[0]
-
-        # find the creator
-        if 'fields' in embed:
-            creator = message.embeds[0]['fields'][0]['value']
-
-        if 'description' in embed:
-            text = embed['description']
-
-    await client.edit_message(message, embed=get_raid_start_embed(creator, raid_channel, text=text))
-
 
 def is_open(channel):
     return channel.topic is None
@@ -163,12 +139,7 @@ async def get_announcement_message(raid_channel):
 
 def get_raid_channel(message):
     """Pulls out the channel field from the message embed."""
-    if message.embeds:
-        embed = message.embeds[0]
-        channel_mention = embed['fields'][1]['value']
-        for channel in get_raid_channels(message.channel.server):
-            if channel.mention == channel_mention:
-                return channel
+    return message.channel_mentions[0] if message.channel_mentions else None
 
 
 async def is_raid_expired(raid_channel):
@@ -184,6 +155,13 @@ def get_available_raid_channel(server):
     for channel in get_raid_channels(server):
         if is_open(channel):
             return channel
+
+
+def get_raid_expiration(message):
+    expiration_dt = message.timestamp + timedelta(seconds=settings['raid_group_duration_seconds'])
+    zone = pytz.timezone('US/Eastern')
+    expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
+    return expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
 
 async def start_raid_group(user, message_id):
@@ -241,10 +219,9 @@ async def invite_user_to_raid(channel, user):
     await client.edit_channel_permissions(channel, user, perms)
 
     # sends a message to the raid channel the user was added
-    await client.send_message(channel, embed=get_raid_join_embed(user, channel))
-
-    # update the member announcement message member count
-    await update_raid_announcement(channel, user.mention)
+    await client.send_message(channel,
+                              "{}, you are now a member of this raid group.".format(user.mention),
+                              embed=get_raid_join_embed(user, channel))
 
 
 async def uninvite_user_from_raid(channel, user):
@@ -256,9 +233,6 @@ async def uninvite_user_from_raid(channel, user):
     server = channel.server
     announcement_message = await get_announcement_message(channel)
     await client.remove_reaction(announcement_message, get_join_emoji(), user)
-
-    # update the announcement message
-    await update_raid_announcement(channel)
 
 
 async def list_raid_members(channel):
@@ -289,23 +263,26 @@ async def on_ready():
 async def on_reaction_add(reaction, user):
     """Invites a user to a raid channel they react to they are no already there."""
     server = reaction.message.server
+    message = reaction.message
+    if user == server.me:
+        return
+
     announcement_channel = get_announcement_channel(server)
     if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
-        message = reaction.message
         raid_channel = get_raid_channel(message)
-        if is_raid_channel(raid_channel):
+        announcement_message = await get_announcement_message(raid_channel)
+        if is_raid_channel(raid_channel) and message.id == announcement_message.id:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
-            if raid_channel.overwrites_for(user).is_empty() and user != message.server.me:
+            if raid_channel.overwrites_for(user).is_empty():
                 await invite_user_to_raid(raid_channel, user)
 
     elif reaction.emoji == get_leave_emoji():
-        message = reaction.message
         raid_channel = message.channel
-        if is_raid_channel(raid_channel):
+        if is_raid_channel(raid_channel) and reaction.message.author == server.me:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
-            if not raid_channel.overwrites_for(user).is_empty() and user != message.server.me:
+            if not raid_channel.overwrites_for(user).is_empty():
                 await uninvite_user_from_raid(raid_channel, user)
 
                 # remove this reaction
@@ -316,6 +293,9 @@ async def on_reaction_add(reaction, user):
 async def on_reaction_remove(reaction, user):
     """Uninvites a user to a raid when they remove a reaction if they are there."""
     server = reaction.message.server
+    if user == server.me:
+        return
+
     announcement_channel = get_announcement_channel(server)
     if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
         message = reaction.message
@@ -323,7 +303,7 @@ async def on_reaction_remove(reaction, user):
         if is_raid_channel(raid_channel):
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
-            if not raid_channel.overwrites_for(user).is_empty() and user != message.server.me:
+            if not raid_channel.overwrites_for(user).is_empty():
                 await uninvite_user_from_raid(raid_channel, user)
 
 @client.event
@@ -332,13 +312,19 @@ async def on_message(message):
     server = message.server
     channel = message.channel
     user = message.author
+    if user == server.me:
+        return
+
     if is_announcement_channel(channel) and is_raid_start_message(message):
         # send the message, then edit the raid to avoid a double notification
-        raid_message = await client.send_message(channel, embed=get_raid_starting_embed(""))
-        raid_message = await client.edit_message(raid_message, embed=get_raid_starting_embed(message.content))
+        raid_message = await client.send_message(channel, "Looking for open channels...")
         raid_channel = await start_raid_group(user, raid_message.id)
         if raid_channel:
-            # invte the member
+            raid_message = await client.edit_message(raid_message,
+                                                     '*"{}"*\n\n**in:** {}'.format(message.content, raid_channel.mention),
+                                                     embed=get_raid_start_embed(user.mention, get_raid_expiration(raid_message)))
+
+            # invite the member
             await invite_user_to_raid(raid_channel, user)
 
             # add a join reaction to the message
@@ -347,8 +333,11 @@ async def on_message(message):
         else:
             # notify them to use the backup raid channel, this won't be monitored
             backup_channel = get_backup_channel(server)
+
             #content = 'Unable to start a dedicated raid channel, all available channels are full. Please coordinate this raid in the {} channel'.format(backup_channel.mention)
-            m = await client.edit_message(raid_message, embed=get_raid_busy_embed(backup_channel))
+            m = await client.edit_message(raid_message,
+                                          '*"{}"*\n\n**in:** {}'.format(message.content, backup_channel.mention),
+                                          embed=get_raid_busy_embed(backup_channel))
             await client.add_reaction(m, '\U0001F61F')  # frowning
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
