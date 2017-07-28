@@ -19,6 +19,12 @@ settings = json.load(open(settings_path, "rt"))
 
 client = discord.Client()
 
+
+def get_raid_viewer_roles(server):
+    """Gets roles that should get read perms when the raid is started."""
+    return [r for r in server.roles if r.name in settings.get('raid_viewer_roles', [])]
+
+
 def get_raid_channels(server):
     """Gets the list of raid channels for ther server."""
     return (c for c in server.channels if c.name.startswith('raid-group') and c.permissions_for(server.me).manage_roles)
@@ -188,12 +194,18 @@ async def start_raid_group(user, message_id):
         # add shortcut reactions for commands
         await client.add_reaction(summary_message, get_leave_emoji())
 
+        # set channel permissions to make raid viewers see the raid.
+        for role in get_raid_viewer_roles(server):
+            perms = discord.PermissionOverwrite(read_messages=True)
+            await client.edit_channel_permissions(channel, role, perms)
+
         return channel
 
 async def end_raid_group(channel):
     # remove all the permissions
+    raid_viewer_roles = get_raid_viewer_roles(channel.server)
     for target, _ in channel.overwrites:
-        if isinstance(target, discord.User):
+        if isinstance(target, discord.User) or target in raid_viewer_roles:
             await client.delete_channel_permissions(channel, target)
 
     # purge all messages
