@@ -67,6 +67,13 @@ def get_raid_end_embed(channel):
     return embed
 
 
+def get_error_embed(text):
+    embed = discord.Embed()
+    embed.title = text
+    embed.color = discord.Color.magenta()
+    return embed
+
+
 def get_raid_busy_embed(channel):
     embed = discord.Embed()
     embed.title = 'All raid channels are busy at the moment.'
@@ -106,6 +113,7 @@ def get_raid_summary_embed(creator, expiration_dt, text):
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
     embed.add_field(name="$leaveraid", value="Removes you from this raid.", inline=False)
     embed.add_field(name="$listraid", value="Shows all current members of this raid channel.", inline=False)
+    embed.add_field(name="$endraid", value="Ends the raid and closes the channel.", inline=False)
     embed.set_footer(text='You can also leave the raid with the {} reaction below.'.format(get_leave_emoji()))
     embed.color = discord.Color.green()
     return embed
@@ -169,6 +177,17 @@ async def get_announcement_message(raid_channel):
     except:
         return None  # an error occurred, return None TODO: log here
     return message
+
+async def get_raid_creator(raid_channel):
+    message = await get_announcement_message(raid_channel)
+    if message.embeds:
+        embed = message.embeds[0]
+        fields = embed.get('fields', [])
+        if fields:
+            creator_mention = fields[0]['value']
+            for target, _ in raid_channel.overwrites:
+                if isinstance(target, discord.User) and target.mention == creator_mention:
+                    return target
 
 
 def get_raid_channel(message):
@@ -402,6 +421,12 @@ async def on_message(message):
         await uninvite_user_from_raid(channel, user)
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
+    elif is_raid_channel(channel) and message.content.startswith('$endraid'):
+        creator = await get_raid_creator(channel)
+        if creator == user:
+            await end_raid_group(channel)
+        else:
+            await client.send_message(channel, embed=get_error_embed('Only the creator may end the raid.'))
 
 client.loop.create_task(cleanup_raid_channels())
 client.loop.create_task(remind_announcement_channel())
