@@ -20,4 +20,5 @@ setup(name='pokemon-go-raid-bot',
         'pytz>=2017.2',
       ],
       test_suite='setup.my_test_suite',
+      entry_points={'console_scripts': ['raid_bot = raid_bot.bot:main']}
       )

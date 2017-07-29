@@ -6,23 +6,14 @@ import time
 import pytz
 from datetime import datetime, timedelta, timezone
 
-"""
-Permission Requirements:
-
-    - Manage Message and Read Message on the Announcement Channel
-    - Mannage Channel, Manage Permissions / Roles and Read Message on the Raid Channels
-"""
-
-
-settings_path = "settings.json" if len(sys.argv) == 1 else sys.argv[1]
-settings = json.load(open(settings_path, "rt"))
 
 client = discord.Client()
+settings = None
 
 
 def get_raid_viewer_roles(server):
     """Gets roles that should get read perms when the raid is started."""
-    return [r for r in server.roles if r.name in settings.get('raid_viewer_roles', [])]
+    return [r for r in server.roles if r.name in settings.raid_additional_roles]
 
 
 def get_raid_channels(server):
@@ -32,12 +23,12 @@ def get_raid_channels(server):
 
 def get_announcement_channel(server):
     """Gets the announcement channel for a server."""
-    return discord.utils.find(lambda c: c.name == settings['announcement_channel'], server.channels)
+    return discord.utils.find(lambda c: c.name == settings.announcement_channel, server.channels)
 
 
 def get_backup_channel(server):
     """Gets the announcement channel for a server."""
-    return discord.utils.find(lambda c: c.name == settings['backup_raid_channel'], server.channels)
+    return discord.utils.find(lambda c: c.name == settings.backup_raid_channel, server.channels)
 
 
 def get_raid_start_embed(creator_str, expiration_str):
@@ -200,7 +191,7 @@ async def is_raid_expired(raid_channel):
     if message is None:
         return True  # can't find message, clean up the raid channel
     create_ts = message.timestamp.replace(tzinfo=timezone.utc).timestamp()
-    return settings['raid_group_duration_seconds'] < time.time() - create_ts
+    return settings.raid_duration_seconds < time.time() - create_ts
 
 
 def get_available_raid_channel(server):
@@ -211,7 +202,7 @@ def get_available_raid_channel(server):
 
 
 def get_raid_expiration(message):
-    expiration_dt = message.timestamp + timedelta(seconds=settings['raid_group_duration_seconds'])
+    expiration_dt = message.timestamp + timedelta(seconds=settings.raid_duration_seconds)
     zone = pytz.timezone('US/Eastern')
     expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
     return expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p")
@@ -233,7 +224,7 @@ async def start_raid_group(user, message_id, description):
         message = await client.get_message(announcement_channel, message_id)
 
         # calculate expiration time
-        expiration_dt = message.timestamp + timedelta(seconds=settings['raid_group_duration_seconds'])
+        expiration_dt = message.timestamp + timedelta(seconds=settings.raid_duration_seconds)
         zone = pytz.timezone('US/Eastern')
         expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
         summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, expiration_dt, description))
@@ -299,22 +290,22 @@ async def list_raid_members(channel):
     await client.send_message(channel, embed=get_raid_members_embed(members))
 
 
-async def remind_announcement_channel():
-    if not settings['bot_reminder_interval_seconds']:
-        return
-
-    await client.wait_until_ready()
-    while not client.is_closed:
-        for server in client.servers:
-            announcement_channel = get_announcement_channel(server)
-            channels = get_raid_channels(server)
-            for channel in channels:
-                if not is_open(channel):
-                    expired = await is_raid_expired(channel)
-                    if not expired:
-                        await post_raid_reminder(channel)
-
-        await asyncio.sleep(settings['bot_reminder_interval_seconds'])
+#async def remind_announcement_channel():
+#    if not settings.bot_reminder_interval_seconds:
+#        return
+#
+#    await client.wait_until_ready()
+#    while not client.is_closed:
+#        for server in client.servers:
+#            announcement_channel = get_announcement_channel(server)
+#            channels = get_raid_channels(server)
+#            for channel in channels:
+#                if not is_open(channel):
+#                    expired = await is_raid_expired(channel)
+#                    if not expired:
+#                        await post_raid_reminder(channel)
+#
+#        await asyncio.sleep(settings.bot_reminder_interval_seconds)
 
 async def cleanup_raid_channels():
     await client.wait_until_ready()
@@ -328,7 +319,7 @@ async def cleanup_raid_channels():
                     if expired or not num_members_in_raid(channel):
                         await end_raid_group(channel)
 
-        await asyncio.sleep(settings['bot_cleanup_interval_seconds'])
+        await asyncio.sleep(settings.raid_cleanup_interval_seconds)
 
 
 @client.event
@@ -428,6 +419,33 @@ async def on_message(message):
         else:
             await client.send_message(channel, embed=get_error_embed('Only the creator may end the raid.'))
 
-client.loop.create_task(cleanup_raid_channels())
-client.loop.create_task(remind_announcement_channel())
-client.run(settings['token'])
+
+def get_args():
+    from argparse import ArgumentParser
+    parser = ArgumentParser(description="Pokemon Go discord bot for coordinating raids.")
+    parser.add_argument("--token", required=True, default=None, help="The token to use when running the bot.")
+    parser.add_argument("--announcement-channel", required=True, default=None,
+                        help="Channel to listen for and announce raids on (default: %(default)s)")
+    parser.add_argument("--backup-raid-channel", default="raid-coordination",
+                        help="The channel to use when raid channels are unavailable (default: %(default)s)")
+    parser.add_argument("--raid-channel-regex", default="^raid-group-.+",
+                        help="Pattern which all raid channels must have. (default: %(default)s)")
+    parser.add_argument("--raid-start-regex", default="^raid-.+",
+                        help="Regex for role mentions to trigger a raid. (default: %(default)s)")
+    parser.add_argument("--raid-duration-seconds", type=int, default=7200,
+                        help="Time until a raid group expires, in seconds (default: %(default)s).")
+    parser.add_argument("--raid-cleanup-interval-seconds", type=int, default=60,
+                        help="Time between checks for cleaning up raids (default: %(default)s)")
+    parser.add_argument("--raid-additional-roles", default=['raid-moderator'],
+                        help="Additional roles to permission on active raid channels (default: %(default)s)")
+    args = parser.parse_args()
+    return args
+
+
+def main():
+    global settings
+    settings = get_args()
+    client.loop.create_task(cleanup_raid_channels())
+    #client.loop.create_task(remind_announcement_channel())
+    client.run(settings.token)
+
