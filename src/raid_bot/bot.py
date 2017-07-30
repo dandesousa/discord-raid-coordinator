@@ -202,7 +202,8 @@ def get_raid_summary_embed(creator, expiration_dt, text):
 def is_raid_start_message(message):
     """Whether this is the start of a new raid."""
     if message.role_mentions:
-        return any(mention.name.startswith('raid-') for mention in message.role_mentions)
+        rx = re.compile(settings.raid_start_regex)
+        return any(rx.search(mention.name) for mention in message.role_mentions)
 
 
 def is_announcement_channel(channel):
@@ -508,7 +509,8 @@ def get_args():
                         help="The channel to use when raid channels are unavailable (default: %(default)s)")
     parser.add_argument("--raid-channel-regex", default="^raid-group-.+",
                         help="Pattern which all raid channels must have. (default: %(default)s)")
-    parser.add_argument("--raid-start-regex", default="^raid-.+",
+    # matches if starts with raid- but not raid-group
+    parser.add_argument("--raid-start-regex", default="^raid-(?!group).+",
                         help="Regex for role mentions to trigger a raid. (default: %(default)s)")
     parser.add_argument("--raid-duration-seconds", type=int, default=7200,
                         help="Time until a raid group expires, in seconds (default: %(default)s).")
