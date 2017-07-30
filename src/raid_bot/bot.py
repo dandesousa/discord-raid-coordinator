@@ -35,6 +35,8 @@ settings = None
 #
 # Bot Cacheable Attributes
 #
+# If problem with this crops up, removing the cached_attribute decorator will remove caching behavior.
+#
 # Some attributes of the bot are fixed when the bot starts, like:
 #
 #   - The announcement channel where the bot looks and posts new raids
@@ -78,6 +80,10 @@ def get_backup_channel(server):
 #
 
 
+#
+# Configuration abstraction
+#
+
 def get_join_emoji():
     """Gets the join emoji for a server."""
     return settings.raid_join_emoji
@@ -93,59 +99,77 @@ def get_full_emoji():
     return settings.raid_full_emoji
 
 
-def get_raid_start_embed(creator_str, expiration_str):
+def strfdelta(tdelta, fmt):
+    d = {"days": tdelta.days}
+    d["hours"], rem = divmod(tdelta.seconds, 3600)
+    d["minutes"], d["seconds"] = divmod(rem, 60)
+    return fmt.format(**d)
+
+
+def adjusted_datetime(dt, tz='US/Eastern'):
+    zone = pytz.timezone(tz)
+    return dt + zone.utcoffset(dt)
+
+
+def get_raid_expiration(started_dt):
+    return started_dt + timedelta(seconds=settings.raid_duration_seconds)
+
+#
+#
+#
+
+def get_raid_start_embed(creator_str, started_dt, expiration_dt):
     embed = discord.Embed()
-    embed.title = 'A raid has started!'
     embed.color = discord.Color.green()
+    embed.title = 'A raid has started!'
     embed.add_field(name='creator', value=creator_str, inline=True)
-    embed.add_field(name='channel expires', value=expiration_str)
+    embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
+    embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format), inline=False)
     embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
     return embed
 
 
 def get_raid_reminder_embed(creator_str, expiration_str, num_members):
     embed = discord.Embed()
+    embed.color = discord.Color.default()
     embed.add_field(name='members', value=num_members, inline=True)
     embed.add_field(name='creator', value=creator_str, inline=True)
     embed.add_field(name='channel expires', value=expiration_str)
-    embed.color = discord.Color.default()
     embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
     return embed
 
 
-def get_raid_end_embed(channel):
+def get_raid_end_embed(creator, started_dt, ended_dt):
+    duration = ended_dt - started_dt
     embed = discord.Embed()
-    embed.title = 'This raid has ended'
-    embed.color = discord.Color.magenta()
+    embed.color = discord.Color.red()
+    embed.title = 'This raid has ended.'
+    embed.add_field(name='creator', value=creator, inline=True)
+    embed.add_field(name='duration', value=strfdelta(duration, '{hours}:{minutes}:{seconds}'), inline=True)
+    embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
+    embed.add_field(name='ended at', value=ended_dt.strftime(settings.time_format), inline=False)
+    return embed
+
+
+def get_success_embed(text):
+    embed = discord.Embed()
+    embed.color = discord.Color.green()
+    embed.description = text
     return embed
 
 
 def get_error_embed(text):
     embed = discord.Embed()
-    embed.title = text
-    embed.color = discord.Color.magenta()
+    embed.color = discord.Color.red()
+    embed.description = text
     return embed
 
 
 def get_raid_busy_embed(channel):
     embed = discord.Embed()
+    embed.color = discord.Color.dark_teal()
     embed.title = 'All raid channels are busy at the moment.'
     embed.description = 'Coordinate this raid in {} instead. More channels will be available later.'.format(channel.mention)
-    embed.color = discord.Color.dark_teal()
-    return embed
-
-
-def get_raid_join_embed(user, channel):
-    embed = discord.Embed()
-    embed.description = '{} has joined the raid!'.format(user.mention)
-    embed.color = discord.Color.green()
-    return embed
-
-
-def get_raid_left_embed(user, channel):
-    embed = discord.Embed()
-    embed.description = '{} has the left raid!'.format(user.mention)
-    embed.color = discord.Color.red()
     return embed
 
 
@@ -162,7 +186,7 @@ def get_raid_summary_embed(creator, expiration_dt, text):
     embed.title = 'Welcome to this raid channel!'
     embed.description = text
     embed.add_field(name='creator', value=creator.mention)
-    embed.add_field(name='channel expires', value=expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p"))
+    embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format))
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
     embed.add_field(name="$leaveraid", value="Removes you from this raid.", inline=False)
     embed.add_field(name="$listraid", value="Shows all current members of this raid channel.", inline=False)
@@ -193,23 +217,6 @@ def is_raid_channel(channel):
 def is_open(channel):
     return channel.topic is None
 
-
-async def post_raid_reminder(raid_channel):
-    announcement_channel = get_announcement_channel(raid_channel.server)
-    message = await get_announcement_message(raid_channel)
-    if message.embeds:
-        embed = message.embeds[0]
-        num_members = num_members_in_raid(raid_channel)
-        creator_str = embed['fields'][0]['value']
-        expires_str = embed['fields'][1]['value']
-        embed = get_raid_reminder_embed(creator_str, expires_str, num_members_in_raid(raid_channel))
-
-        # send it once, then update it
-        reminder_message = await client.send_message(announcement_channel, "", embed=embed)
-        await client.edit_message(reminder_message, message.content, embed=embed)
-
-        # add shortcut reactions for commands
-        await client.add_reaction(reminder_message, get_join_emoji())
 
 async def get_announcement_message(raid_channel):
     """Gets the message that created this channel."""
@@ -254,11 +261,6 @@ def get_available_raid_channel(server):
             return channel
 
 
-def get_raid_expiration(message):
-    expiration_dt = message.timestamp + timedelta(seconds=settings.raid_duration_seconds)
-    zone = pytz.timezone('US/Eastern')
-    expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
-    return expiration_dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
 
 async def start_raid_group(user, message_id, description):
@@ -277,9 +279,7 @@ async def start_raid_group(user, message_id, description):
         message = await client.get_message(announcement_channel, message_id)
 
         # calculate expiration time
-        expiration_dt = message.timestamp + timedelta(seconds=settings.raid_duration_seconds)
-        zone = pytz.timezone('US/Eastern')
-        expiration_dt = expiration_dt + zone.utcoffset(expiration_dt)
+        expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
         summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, expiration_dt, description))
 
         # add shortcut reactions for commands
@@ -293,6 +293,9 @@ async def start_raid_group(user, message_id, description):
         return channel
 
 async def end_raid_group(channel):
+    # get the creator before we remove roles
+    creator = await get_raid_creator(channel)
+
     # remove all the permissions
     raid_viewer_roles = get_raid_additional_roles(channel.server)
     for target, _ in channel.overwrites:
@@ -305,7 +308,9 @@ async def end_raid_group(channel):
     # update the message if its available
     message = await get_announcement_message(channel)
     if message:
-        await client.edit_message(message, embed=get_raid_end_embed(channel))
+        started_dt = adjusted_datetime(message.timestamp)
+        ended_dt = datetime.now()
+        await client.edit_message(message, embed=get_raid_end_embed(creator.mention if creator else None, started_dt, ended_dt))
         await client.clear_reactions(message)
 
     # remove the topic
@@ -324,13 +329,13 @@ async def invite_user_to_raid(channel, user):
     # sends a message to the raid channel the user was added
     await client.send_message(channel,
                               "{}, you are now a member of this raid group.".format(user.mention),
-                              embed=get_raid_join_embed(user, channel))
+                              embed=get_success_embed('{} has joined the raid!'.format(user.mention)))
 
 
 async def uninvite_user_from_raid(channel, user):
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
-    await client.send_message(channel, embed=get_raid_left_embed(user, channel))
+    await client.send_message(channel, embed=get_error_embed('{} has the left raid!'.format(user.mention)))
 
     # remove the messages emoji
     server = channel.server
@@ -342,23 +347,6 @@ async def list_raid_members(channel):
     members = [target for target, _ in channel.overwrites if isinstance(target, discord.User)]
     await client.send_message(channel, embed=get_raid_members_embed(members))
 
-
-#async def remind_announcement_channel():
-#    if not settings.bot_reminder_interval_seconds:
-#        return
-#
-#    await client.wait_until_ready()
-#    while not client.is_closed:
-#        for server in client.servers:
-#            announcement_channel = get_announcement_channel(server)
-#            channels = get_raid_channels(server)
-#            for channel in channels:
-#                if not is_open(channel):
-#                    expired = await is_raid_expired(channel)
-#                    if not expired:
-#                        await post_raid_reminder(channel)
-#
-#        await asyncio.sleep(settings.bot_reminder_interval_seconds)
 
 async def cleanup_raid_channels():
     await client.wait_until_ready()
@@ -454,9 +442,11 @@ async def on_message(message):
         raid_message = await client.send_message(channel, "Looking for open channels...")
         raid_channel = await start_raid_group(user, raid_message.id, message.clean_content)
         if raid_channel:
+            started_dt = adjusted_datetime(raid_message.timestamp)
+            expiration_dt = adjusted_datetime(get_raid_expiration(raid_message.timestamp))
             raid_message = await client.edit_message(raid_message,
                                                      '*"{}"*\n\n**in:** {}'.format(message.content, raid_channel.mention),
-                                                     embed=get_raid_start_embed(user.mention, get_raid_expiration(raid_message)))
+                                                     embed=get_raid_start_embed(user.mention, started_dt, expiration_dt))
 
             # invite the member
             await invite_user_to_raid(raid_channel, user)
@@ -500,11 +490,12 @@ def get_args():
                         help="Time until a raid group expires, in seconds (default: %(default)s).")
     parser.add_argument("--raid-cleanup-interval-seconds", type=int, default=60,
                         help="Time between checks for cleaning up raids (default: %(default)s)")
-    parser.add_argument("--raid-additional-roles", default=['raid-moderator'],
+    parser.add_argument("--raid-additional-roles", default=[], action='append',
                         help="Additional roles to permission on active raid channels (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
+    parser.add_argument("--time-format", default='%Y-%m-%d %I:%M:%S %p', help="The time format to use. (default: %(default)s)")
     args = parser.parse_args()
     return args
 
@@ -513,6 +504,5 @@ def main():
     global settings
     settings = get_args()
     client.loop.create_task(cleanup_raid_channels())
-    #client.loop.create_task(remind_announcement_channel())
     client.run(settings.token)
 
