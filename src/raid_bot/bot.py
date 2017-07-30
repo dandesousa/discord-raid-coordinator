@@ -45,13 +45,13 @@ settings = None
 #
 
 
-@cached_attribute
+#@cached_attribute
 def get_raid_additional_roles(server):
     """Gets roles that should get read perms when the raid is started."""
     return [r for r in server.roles if r.name in settings.raid_additional_roles]
 
 
-@cached_attribute
+#@cached_attribute
 def get_raid_channels(server):
     """Gets the list of raid channels for ther server."""
     raid_channels = []
@@ -63,13 +63,13 @@ def get_raid_channels(server):
     return raid_channels
 
 
-@cached_attribute
+#@cached_attribute
 def get_announcement_channel(server):
     """Gets the announcement channel for a server."""
     return discord.utils.find(lambda c: c.name == settings.announcement_channel, server.channels)
 
 
-@cached_attribute
+#@cached_attribute
 def get_backup_channel(server):
     """Gets the announcement channel for a server."""
     return discord.utils.find(lambda c: c.name == settings.backup_raid_channel, server.channels)
@@ -121,6 +121,10 @@ def get_raid_expiration(started_dt):
 #
 # Raid properties
 #
+
+
+def get_raid_role(channel):
+    return discord.utils.find(lambda r: r.name == channel.name, channel.server.roles)
 
 
 def get_raid_members(channel):
@@ -236,10 +240,16 @@ async def get_raid_creator(raid_channel):
         fields = embed.get('fields', [])
         if fields:
             creator_mention = fields[0]['value']
+
+            # try in the overwrites
             for target, _ in raid_channel.overwrites:
                 if isinstance(target, discord.User) and target.mention == creator_mention:
                     return target
 
+            # otherwise try in the server users (less efficient but right)
+            for target in raid_channel.server.members:
+                if isinstance(target, discord.User) and target.mention == creator_mention:
+                    return target
 
 def get_raid_channel(message):
     """Pulls out the channel field from the message embed."""
@@ -274,6 +284,9 @@ async def start_raid_group(user, message_id, description):
         # set the topic
         await client.edit_channel(channel, topic=message_id)
 
+        # create a role with the same name as this channel
+        await client.create_role(server, name=channel.name, mentionable=True)
+
         # get the message
         announcement_channel = get_announcement_channel(server)
         message = await client.get_message(announcement_channel, message_id)
@@ -302,6 +315,11 @@ async def end_raid_group(channel):
         if isinstance(target, discord.User) or target in raid_viewer_roles:
             await client.delete_channel_permissions(channel, target)
 
+    # remove the role
+    role = get_raid_role(channel)
+    if role:
+        await client.delete_role(channel.server, role)
+
     # purge all messages
     await client.purge_from(channel)
 
@@ -322,6 +340,11 @@ async def invite_user_to_raid(channel, user):
     perms = discord.PermissionOverwrite(read_messages=True)
     await client.edit_channel_permissions(channel, user, perms)
 
+    # invite user to role
+    role = get_raid_role(channel)
+    if role:
+        await client.add_roles(user, role)
+
     # sends a message to the raid channel the user was added
     await client.send_message(channel,
                               "{}, you are now a member of this raid group.".format(user.mention),
@@ -332,6 +355,11 @@ async def uninvite_user_from_raid(channel, user):
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
     await client.send_message(channel, embed=get_error_embed('{} has the left raid!'.format(user.mention)))
+
+    # delete user from role
+    role = get_raid_role(channel)
+    if role:
+        await client.remove_roles(user, role)
 
     # remove the messages emoji
     server = channel.server
