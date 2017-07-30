@@ -184,12 +184,13 @@ def get_raid_members_embed(members):
     return embed
 
 
-def get_raid_summary_embed(creator, expiration_dt, text):
+def get_raid_summary_embed(creator, role, expiration_dt, text):
     embed = discord.Embed()
     embed.title = 'Welcome to this raid channel!'
     embed.description = "**{}**".format(text)
     embed.add_field(name='creator', value=creator.mention)
     embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format))
+    embed.add_field(name='raid group', value=role.mention, inline=False)
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
     embed.add_field(name="$leaveraid", value="Removes you from this raid.", inline=False)
     embed.add_field(name="$listraid", value="Shows all current members of this raid channel.", inline=False)
@@ -286,7 +287,7 @@ async def start_raid_group(user, message_id, description):
         await client.edit_channel(channel, topic=message_id)
 
         # create a role with the same name as this channel
-        await client.create_role(server, name=channel.name, mentionable=True)
+        role = await client.create_role(server, name=channel.name, mentionable=True)
 
         # get the message
         announcement_channel = get_announcement_channel(server)
@@ -294,7 +295,7 @@ async def start_raid_group(user, message_id, description):
 
         # calculate expiration time
         expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
-        summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, expiration_dt, description))
+        summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, role, expiration_dt, description))
 
         # add shortcut reactions for commands
         await client.add_reaction(summary_message, get_leave_emoji())
