@@ -144,7 +144,7 @@ def get_raid_end_embed(creator, started_dt, ended_dt):
     embed.color = discord.Color.red()
     embed.title = 'This raid has ended.'
     embed.add_field(name='creator', value=creator.mention if creator else None, inline=True)
-    embed.add_field(name='duration', value=strfdelta(duration, '{hours}:{minutes}:{seconds}'), inline=True)
+    embed.add_field(name='duration', value=strfdelta(duration, '{hours:02}:{minutes:02}:{seconds:02}'), inline=True)
     embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
     embed.add_field(name='ended at', value=ended_dt.strftime(settings.time_format), inline=False)
     return embed
@@ -183,7 +183,7 @@ def get_raid_members_embed(members):
 def get_raid_summary_embed(creator, expiration_dt, text):
     embed = discord.Embed()
     embed.title = 'Welcome to this raid channel!'
-    embed.description = text
+    embed.description = "**{}**".format(text)
     embed.add_field(name='creator', value=creator.mention)
     embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format))
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
@@ -231,7 +231,7 @@ async def get_announcement_message(raid_channel):
 
 async def get_raid_creator(raid_channel):
     message = await get_announcement_message(raid_channel)
-    if message.embeds:
+    if message and message.embeds:
         embed = message.embeds[0]
         fields = embed.get('fields', [])
         if fields:
@@ -441,7 +441,7 @@ async def on_message(message):
             started_dt = adjusted_datetime(raid_message.timestamp)
             expiration_dt = adjusted_datetime(get_raid_expiration(raid_message.timestamp))
             raid_message = await client.edit_message(raid_message,
-                                                     '*"{}"*\n\n**in:** {}'.format(message.content, raid_channel.mention),
+                                                     '**{}**\n\n**in:** {}'.format(message.content, raid_channel.mention),
                                                      embed=get_raid_start_embed(user, started_dt, expiration_dt))
 
             # invite the member
