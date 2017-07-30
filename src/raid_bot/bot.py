@@ -1,34 +1,96 @@
 import asyncio
 import discord
+import functools
 import json
+import re
 import sys
 import time
 import pytz
+from collections import namedtuple
 from datetime import datetime, timedelta, timezone
 
 
+def cached_attribute(func):
+    """decorator that returns a cached results."""
+
+    @functools.wraps(func)
+    def inner_func(server):
+        key = func.__name__
+        record = cache.setdefault(server, dict())
+        if key in record:
+            return record[key]
+        return record.setdefault(key, func(server))
+    return inner_func
+
+# process level client
 client = discord.Client()
+
+# process level cache by server
+# discord.Server -> dict()
+cache = dict()
+
+# bot specific settings
 settings = None
 
+#
+# Bot Cacheable Attributes
+#
+# Some attributes of the bot are fixed when the bot starts, like:
+#
+#   - The announcement channel where the bot looks and posts new raids
+#   - The backup channel where the bot suggests going if raid channels are full
+#   - The raid channels, which are looked for the first time and never rescanned
+#
 
-def get_raid_viewer_roles(server):
+
+@cached_attribute
+def get_raid_additional_roles(server):
     """Gets roles that should get read perms when the raid is started."""
     return [r for r in server.roles if r.name in settings.raid_additional_roles]
 
 
+@cached_attribute
 def get_raid_channels(server):
     """Gets the list of raid channels for ther server."""
-    return (c for c in server.channels if c.name.startswith('raid-group') and c.permissions_for(server.me).manage_roles)
+    raid_channels = []
+    rx = re.compile(settings.raid_channel_regex)
+    for channel in server.channels:
+        p = channel.permissions_for(server.me)
+        if rx.search(channel.name) and p.manage_roles and p.manage_messages and p.manage_channels and p.read_messages:
+            raid_channels.append(channel)
+    return raid_channels
 
 
+@cached_attribute
 def get_announcement_channel(server):
     """Gets the announcement channel for a server."""
     return discord.utils.find(lambda c: c.name == settings.announcement_channel, server.channels)
 
 
+@cached_attribute
 def get_backup_channel(server):
     """Gets the announcement channel for a server."""
     return discord.utils.find(lambda c: c.name == settings.backup_raid_channel, server.channels)
+
+
+#
+# End server cacheable attributes
+#
+
+
+def get_join_emoji():
+    """Gets the join emoji for a server."""
+    return settings.raid_join_emoji
+
+
+def get_leave_emoji():
+    """Gets the leave emoji for a server."""
+    return settings.raid_leave_emoji
+
+
+def get_full_emoji():
+    """Gets the full emoji for a server."""
+    return settings.raid_full_emoji
 
 
 def get_raid_start_embed(creator_str, expiration_str):
@@ -108,15 +170,6 @@ def get_raid_summary_embed(creator, expiration_dt, text):
     embed.set_footer(text='You can also leave the raid with the {} reaction below.'.format(get_leave_emoji()))
     embed.color = discord.Color.green()
     return embed
-
-
-def get_leave_emoji():
-    """Gets the join emoji for a server."""
-    return "\U0001F6AA"
-
-def get_join_emoji():
-    """Gets the join emoji for a server."""
-    return "\U0001F464"
 
 
 def is_raid_start_message(message):
@@ -233,7 +286,7 @@ async def start_raid_group(user, message_id, description):
         await client.add_reaction(summary_message, get_leave_emoji())
 
         # set channel permissions to make raid viewers see the raid.
-        for role in get_raid_viewer_roles(server):
+        for role in get_raid_additional_roles(server):
             perms = discord.PermissionOverwrite(read_messages=True)
             await client.edit_channel_permissions(channel, role, perms)
 
@@ -241,7 +294,7 @@ async def start_raid_group(user, message_id, description):
 
 async def end_raid_group(channel):
     # remove all the permissions
-    raid_viewer_roles = get_raid_viewer_roles(channel.server)
+    raid_viewer_roles = get_raid_additional_roles(channel.server)
     for target, _ in channel.overwrites:
         if isinstance(target, discord.User) or target in raid_viewer_roles:
             await client.delete_channel_permissions(channel, target)
@@ -328,6 +381,17 @@ async def on_ready():
     print('------')
 
 
+    for server in client.servers:
+        print('server: {}'.format(server.name))
+        print('announcement channel: {}'.format(get_announcement_channel(server).name))
+        print('backup channel: {}'.format(get_backup_channel(server).name))
+
+        raid_channels = get_raid_channels(server)
+        print('{} raid channel(s)'.format(len(raid_channels)))
+        for channel in raid_channels:
+            print('raid channel: {}'.format(channel.name))
+
+
 @client.event
 async def on_reaction_add(reaction, user):
     """Invites a user to a raid channel they react to they are no already there."""
@@ -407,7 +471,7 @@ async def on_message(message):
             m = await client.edit_message(raid_message,
                                           '*"{}"*\n\n**in:** {}'.format(message.content, backup_channel.mention),
                                           embed=get_raid_busy_embed(backup_channel))
-            await client.add_reaction(m, '\U0001F61F')  # frowning
+            await client.add_reaction(m, get_full_emoji())
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
@@ -438,6 +502,9 @@ def get_args():
                         help="Time between checks for cleaning up raids (default: %(default)s)")
     parser.add_argument("--raid-additional-roles", default=['raid-moderator'],
                         help="Additional roles to permission on active raid channels (default: %(default)s)")
+    parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
+    parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
+    parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
     args = parser.parse_args()
     return args
 
