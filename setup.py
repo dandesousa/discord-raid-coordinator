@@ -9,7 +9,7 @@ def my_test_suite():
 
 
 setup(name='pokemon-go-raid-bot',
-      version='0.0.1',
+      version='0.0.2',
       author='Daniel DeSousa',
       author_email='pgo-raid-bot@daniel.desousa.cc',
       packages=find_packages("src"),
