@@ -51,6 +51,11 @@ def get_raid_additional_roles(server):
     return [r for r in server.roles if r.name in settings.raid_additional_roles]
 
 
+def get_raid_organizer_roles(server):
+    """Gets roles that can help organizer raids."""
+    return [r for r in server.roles if r.name in settings.raid_organizer_roles]
+
+
 #@cached_attribute
 def get_raid_channels(server):
     """Gets the list of raid channels for ther server."""
@@ -493,11 +498,15 @@ async def on_message(message):
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
     elif is_raid_channel(channel) and message.content.startswith('$endraid'):
-        creator = await get_raid_creator(channel)
-        if creator == user:
+        is_organizer = [role for role in get_raid_organizer_roles(user.server) if role in user.roles]
+        if is_organizer:
             await end_raid_group(channel)
         else:
-            await client.send_message(channel, embed=get_error_embed('Only the creator may end the raid.'))
+            creator = await get_raid_creator(channel)
+            if user == creator:
+                await end_raid_group(channel)
+            else:
+                await client.send_message(channel, embed=get_error_embed('Only the creator or raid organizer may end the raid.'))
 
 
 def get_args():
@@ -519,6 +528,8 @@ def get_args():
                         help="Time between checks for cleaning up raids (default: %(default)s)")
     parser.add_argument("--raid-additional-roles", default=[], action='append',
                         help="Additional roles to permission on active raid channels (default: %(default)s)")
+    parser.add_argument("--raid-organizer-roles", default=['raid-organizer'], action='append',
+                        help="Additional roles to help with coordinating raids (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
