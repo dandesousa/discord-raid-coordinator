@@ -329,7 +329,7 @@ async def end_raid_group(channel):
     message = await get_announcement_message(channel)
     if message:
         started_dt = adjusted_datetime(message.timestamp)
-        ended_dt = datetime.now()
+        ended_dt = adjusted_datetime(datetime.now())
         await client.edit_message(message, embed=get_raid_end_embed(creator, started_dt, ended_dt))
         await client.clear_reactions(message)
 
