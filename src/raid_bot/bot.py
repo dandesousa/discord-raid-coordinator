@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+import traceback
 import pytz
 from collections import namedtuple
 from datetime import datetime, timedelta, timezone
@@ -325,7 +326,10 @@ async def end_raid_group(channel):
     # remove the role
     role = get_raid_role(channel)
     if role:
-        await client.delete_role(channel.server, role)
+        try:
+            await client.delete_role(channel.server, role)
+        except:
+            print('Unable to delete role, it was already removed {}.'.format(role.name))
 
     # purge all messages
     await client.purge_from(channel)
@@ -382,14 +386,18 @@ async def list_raid_members(channel):
 async def cleanup_raid_channels():
     await client.wait_until_ready()
     while not client.is_closed:
-        for server in client.servers:
-            announcement_channel = get_announcement_channel(server)
-            channels = get_raid_channels(server)
-            for channel in channels:
-                if not is_open(channel):
-                    expired = await is_raid_expired(channel)
-                    if expired or not get_raid_members(channel):
-                        await end_raid_group(channel)
+        try:
+            for server in client.servers:
+                announcement_channel = get_announcement_channel(server)
+                channels = get_raid_channels(server)
+                for channel in channels:
+                    if not is_open(channel):
+                        expired = await is_raid_expired(channel)
+                        if expired or not get_raid_members(channel):
+                            await end_raid_group(channel)
+        except:
+            print('An exception was thrown in the cleanup thread. But we saved it:')
+            traceback.print_exc()
 
         await asyncio.sleep(settings.raid_cleanup_interval_seconds)
 
