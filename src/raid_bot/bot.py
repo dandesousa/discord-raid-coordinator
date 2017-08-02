@@ -24,7 +24,7 @@ def cached_attribute(func):
     return inner_func
 
 # process level client
-client = discord.Client()
+client = discord.Client(max_messages=10000)
 
 # process level cache by server
 # discord.Server -> dict()
@@ -417,6 +417,11 @@ async def on_ready():
         print('{} raid channel(s)'.format(len(raid_channels)))
         for channel in raid_channels:
             print('raid channel: {}'.format(channel.name))
+
+            # adds the message back into the cache
+            message = await get_announcement_message(channel)
+            if message is not None:
+                client.messages.append(message)  # this is a hack but it puts the message back in the cache to resume
 
 
 @client.event
