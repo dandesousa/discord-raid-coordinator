@@ -72,10 +72,6 @@ def get_raid_channels(server):
     return raid_channels
 
 
-def get_backup_channel(server):
-    """Gets the announcement channel for a server."""
-    return discord.utils.find(lambda c: c.name == settings.backup_raid_channel, server.channels)
-
 
 #
 # End server cacheable attributes
@@ -170,11 +166,11 @@ def get_error_embed(text):
     return embed
 
 
-def get_raid_busy_embed(channel):
+def get_raid_busy_embed():
     embed = discord.Embed()
     embed.color = discord.Color.dark_teal()
     embed.title = 'All raid channels are busy at the moment.'
-    embed.description = 'Coordinate this raid in {} instead. More channels will be available later.'.format(channel.mention)
+    embed.description = 'Coordinate this raid in another channel instead. More channels will be available later.'
     return embed
 
 
@@ -398,7 +394,6 @@ async def on_ready():
 
     for server in client.servers:
         print('server: {}'.format(server.name))
-        print('backup channel: {}'.format(get_backup_channel(server).name))
 
         raid_channels = get_raid_channels(server)
         print('{} raid channel(s)'.format(len(raid_channels)))
@@ -483,12 +478,7 @@ async def on_message(message):
             join_emoji = get_join_emoji()
             await client.add_reaction(raid_message, join_emoji)
         else:
-            # notify them to use the backup raid channel, this won't be monitored
-            backup_channel = get_backup_channel(server)
-
-            m = await client.edit_message(raid_message,
-                                          '*"{}"*\n\n**in:** {}'.format(message.content, backup_channel.mention),
-                                          embed=get_raid_busy_embed(backup_channel))
+            m = await client.edit_message(raid_message, "", embed=get_raid_busy_embed())
             await client.add_reaction(m, get_full_emoji())
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
@@ -510,8 +500,6 @@ def get_args():
     from argparse import ArgumentParser
     parser = ArgumentParser(description="Pokemon Go discord bot for coordinating raids.")
     parser.add_argument("--token", required=True, default=None, help="The token to use when running the bot.")
-    parser.add_argument("--backup-raid-channel", default="raid-coordination",
-                        help="The channel to use when raid channels are unavailable (default: %(default)s)")
     parser.add_argument("--raid-channel-regex", default="^raid-group-.+",
                         help="Pattern which all raid channels must have. (default: %(default)s)")
     # matches if starts with raid- but not raid-group
