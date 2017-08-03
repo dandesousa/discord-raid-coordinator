@@ -28,14 +28,21 @@ settings = None
 #
 # Bot Cacheable Attributes
 
-def get_raid_additional_roles(server):
-    """Gets roles that should get read perms when the raid is started."""
-    return [r for r in server.roles if r.name in settings.raid_additional_roles]
+async def get_or_create_role(server, name):
+    role = discord.utils.find(lambda r: r.name == name, server.roles)
+    if role is None:
+        role = await client.create_role(server, name=name, mentionable=False)
+    return role
 
 
-def get_raid_organizer_roles(server):
-    """Gets roles that can help organizer raids."""
-    return [r for r in server.roles if r.name in settings.raid_organizer_roles]
+async def get_raid_viewer_role(server):
+    role = await get_or_create_role(server, settings.raid_viewer_role_name)
+    return role
+
+
+async def get_raid_organizer_role(server):
+    role = await get_or_create_role(server, settings.raid_organizer_role_name)
+    return role
 
 
 def encode_message(message):
@@ -292,20 +299,22 @@ async def start_raid_group(user, message, description):
         await client.add_reaction(summary_message, get_leave_emoji())
 
         # set channel permissions to make raid viewers see the raid.
-        for role in get_raid_additional_roles(server):
-            perms = discord.PermissionOverwrite(read_messages=True)
-            await client.edit_channel_permissions(channel, role, perms)
+        perms = discord.PermissionOverwrite(read_messages=True)
+        role = await get_raid_viewer_role(server)
+        await client.edit_channel_permissions(channel, role, perms)
 
         return channel
 
 async def end_raid_group(channel):
+    server = channel.server
+
     # get the creator before we remove roles
     creator = await get_raid_creator(channel)
 
     # remove all the permissions
-    raid_viewer_roles = get_raid_additional_roles(channel.server)
+    role = await get_raid_viewer_role(server)
     for target, _ in channel.overwrites:
-        if isinstance(target, discord.User) or target in raid_viewer_roles:
+        if isinstance(target, discord.User) or target == role:
             await client.delete_channel_permissions(channel, target)
 
     # remove the role
@@ -405,6 +414,13 @@ async def on_ready():
             if message is not None:
                 client.messages.append(message)  # this is a hack but it puts the message back in the cache to resume
 
+        # get the roles
+        role = await get_raid_viewer_role(server)
+        print('raid viewer role: {}'.format(role.name))
+
+        role = await get_raid_organizer_role(server)
+        print('raid organizer role: {}'.format(role.name))
+
 
 @client.event
 async def on_reaction_add(reaction, user):
@@ -485,7 +501,8 @@ async def on_message(message):
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
     elif is_raid_channel(channel) and message.content.startswith('$endraid'):
-        is_organizer = [role for role in get_raid_organizer_roles(user.server) if role in user.roles]
+        role = await get_raid_organizer_role(server)
+        is_organizer = role in user.roles
         if is_organizer:
             await end_raid_group(channel)
         else:
@@ -509,10 +526,10 @@ def get_args():
                         help="Time until a raid group expires, in seconds (default: %(default)s).")
     parser.add_argument("--raid-cleanup-interval-seconds", type=int, default=60,
                         help="Time between checks for cleaning up raids (default: %(default)s)")
-    parser.add_argument("--raid-additional-roles", default=[], action='append',
-                        help="Additional roles to permission on active raid channels (default: %(default)s)")
-    parser.add_argument("--raid-organizer-roles", default=['raid-organizer'], action='append',
-                        help="Additional roles to help with coordinating raids (default: %(default)s)")
+    parser.add_argument("--raid-viewer-role-name", default="raid-viewer",
+                        help="Role to user for users that can view active raids without participating (default: %(default)s)")
+    parser.add_argument("--raid-organizer-role-name", default="raid-organizer",
+                        help="Role to use for users that can help organize raids (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
