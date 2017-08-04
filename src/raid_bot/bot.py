@@ -11,20 +11,12 @@ from collections import namedtuple
 from datetime import datetime, timedelta, timezone
 
 
-def cached_attribute(func):
-    """decorator that returns a cached results."""
+# buffer for busier servers
+MAX_MESSAGES = 10000
 
-    @functools.wraps(func)
-    def inner_func(server):
-        key = func.__name__
-        record = cache.setdefault(server, dict())
-        if key in record:
-            return record[key]
-        return record.setdefault(key, func(server))
-    return inner_func
 
 # process level client
-client = discord.Client(max_messages=10000)
+client = discord.Client(max_messages=MAX_MESSAGES)
 
 # process level cache by server
 # discord.Server -> dict()
@@ -35,29 +27,47 @@ settings = None
 
 #
 # Bot Cacheable Attributes
-#
-# If problem with this crops up, removing the cached_attribute decorator will remove caching behavior.
-#
-# Some attributes of the bot are fixed when the bot starts, like:
-#
-#   - The announcement channel where the bot looks and posts new raids
-#   - The backup channel where the bot suggests going if raid channels are full
-#   - The raid channels, which are looked for the first time and never rescanned
-#
+
+async def get_or_create_role(server, name):
+    role = discord.utils.find(lambda r: r.name == name, server.roles)
+    if role is None:
+        role = await client.create_role(server, name=name, mentionable=False)
+    return role
 
 
-#@cached_attribute
-def get_raid_additional_roles(server):
-    """Gets roles that should get read perms when the raid is started."""
-    return [r for r in server.roles if r.name in settings.raid_additional_roles]
+async def get_raid_viewer_role(server):
+    role = await get_or_create_role(server, settings.raid_viewer_role_name)
+    return role
 
 
-def get_raid_organizer_roles(server):
-    """Gets roles that can help organizer raids."""
-    return [r for r in server.roles if r.name in settings.raid_organizer_roles]
+async def get_raid_organizer_role(server):
+    role = await get_or_create_role(server, settings.raid_organizer_role_name)
+    return role
 
 
-#@cached_attribute
+def encode_message(message):
+    """Encodes the message."""
+    return "{}|{}".format(message.channel.id, message.id)
+
+
+def decode_message(data):
+    """Decode the message."""
+    try:
+        channel_id, message_id = data.split('|')
+    except:
+        return None, None
+
+    return channel_id, message_id
+
+
+def lookup_raid_channel(message):
+    server = message.server
+    if message.channel_mentions:
+        raid_channel = message.channel_mentions[0]
+        channel_id, message_id = decode_message(raid_channel.topic)
+        return raid_channel if message.channel.id == channel_id and message_id == message.id else None
+
+
 def get_raid_channels(server):
     """Gets the list of raid channels for ther server."""
     raid_channels = []
@@ -68,17 +78,6 @@ def get_raid_channels(server):
             raid_channels.append(channel)
     return raid_channels
 
-
-#@cached_attribute
-def get_announcement_channel(server):
-    """Gets the announcement channel for a server."""
-    return discord.utils.find(lambda c: c.name == settings.announcement_channel, server.channels)
-
-
-#@cached_attribute
-def get_backup_channel(server):
-    """Gets the announcement channel for a server."""
-    return discord.utils.find(lambda c: c.name == settings.backup_raid_channel, server.channels)
 
 
 #
@@ -174,11 +173,11 @@ def get_error_embed(text):
     return embed
 
 
-def get_raid_busy_embed(channel):
+def get_raid_busy_embed():
     embed = discord.Embed()
     embed.color = discord.Color.dark_teal()
     embed.title = 'All raid channels are busy at the moment.'
-    embed.description = 'Coordinate this raid in {} instead. More channels will be available later.'.format(channel.mention)
+    embed.description = 'Coordinate this raid in another channel instead. More channels will be available later.'
     return embed
 
 
@@ -213,11 +212,6 @@ def is_raid_start_message(message):
         return any(rx.search(mention.name) for mention in message.role_mentions)
 
 
-def is_announcement_channel(channel):
-    """Whether the channel is the announcement channel."""
-    return channel and channel == get_announcement_channel(channel.server)
-
-
 def is_raid_channel(channel):
     """Whether the channel is a valid raid_channel.
     """
@@ -232,13 +226,15 @@ def is_open(channel):
 async def get_announcement_message(raid_channel):
     """Gets the message that created this channel."""
     server = raid_channel.server
-    announcement_channel = get_announcement_channel(server)
-    message_id = raid_channel.topic
+    channel_id, message_id = decode_message(raid_channel.topic)
     try:
-        message = await client.get_message(announcement_channel, message_id)
+        channel = server.get_channel(channel_id)
+        if channel:
+            message = await client.get_message(channel, message_id)
+            return message
     except:
         return None  # an error occurred, return None TODO: log here
-    return message
+
 
 
 async def get_raid_creator(raid_channel):
@@ -281,7 +277,7 @@ def get_available_raid_channel(server):
 
 
 
-async def start_raid_group(user, message_id, description):
+async def start_raid_group(user, message, description):
     # get the server
     server = user.server
 
@@ -290,14 +286,10 @@ async def start_raid_group(user, message_id, description):
 
     if channel:
         # set the topic
-        await client.edit_channel(channel, topic=message_id)
+        await client.edit_channel(channel, topic=encode_message(message))
 
         # create a role with the same name as this channel
         role = await client.create_role(server, name=channel.name, mentionable=True)
-
-        # get the message
-        announcement_channel = get_announcement_channel(server)
-        message = await client.get_message(announcement_channel, message_id)
 
         # calculate expiration time
         expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
@@ -307,20 +299,22 @@ async def start_raid_group(user, message_id, description):
         await client.add_reaction(summary_message, get_leave_emoji())
 
         # set channel permissions to make raid viewers see the raid.
-        for role in get_raid_additional_roles(server):
-            perms = discord.PermissionOverwrite(read_messages=True)
-            await client.edit_channel_permissions(channel, role, perms)
+        perms = discord.PermissionOverwrite(read_messages=True)
+        role = await get_raid_viewer_role(server)
+        await client.edit_channel_permissions(channel, role, perms)
 
         return channel
 
 async def end_raid_group(channel):
+    server = channel.server
+
     # get the creator before we remove roles
     creator = await get_raid_creator(channel)
 
     # remove all the permissions
-    raid_viewer_roles = get_raid_additional_roles(channel.server)
+    role = await get_raid_viewer_role(server)
     for target, _ in channel.overwrites:
-        if isinstance(target, discord.User) or target in raid_viewer_roles:
+        if isinstance(target, discord.User) or target == role:
             await client.delete_channel_permissions(channel, target)
 
     # remove the role
@@ -388,7 +382,6 @@ async def cleanup_raid_channels():
     while not client.is_closed:
         try:
             for server in client.servers:
-                announcement_channel = get_announcement_channel(server)
                 channels = get_raid_channels(server)
                 for channel in channels:
                     if not is_open(channel):
@@ -410,8 +403,6 @@ async def on_ready():
 
     for server in client.servers:
         print('server: {}'.format(server.name))
-        print('announcement channel: {}'.format(get_announcement_channel(server).name))
-        print('backup channel: {}'.format(get_backup_channel(server).name))
 
         raid_channels = get_raid_channels(server)
         print('{} raid channel(s)'.format(len(raid_channels)))
@@ -423,6 +414,13 @@ async def on_ready():
             if message is not None:
                 client.messages.append(message)  # this is a hack but it puts the message back in the cache to resume
 
+        # get the roles
+        role = await get_raid_viewer_role(server)
+        print('raid viewer role: {}'.format(role.name))
+
+        role = await get_raid_organizer_role(server)
+        print('raid organizer role: {}'.format(role.name))
+
 
 @client.event
 async def on_reaction_add(reaction, user):
@@ -432,11 +430,10 @@ async def on_reaction_add(reaction, user):
     if user == server.me:
         return
 
-    announcement_channel = get_announcement_channel(server)
-    if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
-        raid_channel = get_raid_channel(message)
-        announcement_message = await get_announcement_message(raid_channel)
-        if is_raid_channel(raid_channel) and announcement_message:
+
+    if reaction.emoji == get_join_emoji():
+        raid_channel = lookup_raid_channel(message)
+        if raid_channel:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
             if raid_channel.overwrites_for(user).is_empty():
@@ -458,15 +455,13 @@ async def on_reaction_add(reaction, user):
 async def on_reaction_remove(reaction, user):
     """Uninvites a user to a raid when they remove a reaction if they are there."""
     server = reaction.message.server
+    message = reaction.message
     if user == server.me:
         return
 
-    announcement_channel = get_announcement_channel(server)
-    if reaction.emoji == get_join_emoji() and announcement_channel == reaction.message.channel:
-        message = reaction.message
-        raid_channel = get_raid_channel(message)
-        announcement_message = await get_announcement_message(raid_channel)
-        if is_raid_channel(raid_channel) and announcement_message:
+    if reaction.emoji == get_join_emoji():
+        raid_channel = lookup_raid_channel(message)
+        if raid_channel:
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
             if not raid_channel.overwrites_for(user).is_empty():
@@ -481,10 +476,10 @@ async def on_message(message):
     if user == server.me:
         return
 
-    if is_announcement_channel(channel) and is_raid_start_message(message):
+    if channel not in get_raid_channels(server) and is_raid_start_message(message):
         # send the message, then edit the raid to avoid a double notification
         raid_message = await client.send_message(channel, "Looking for open channels...")
-        raid_channel = await start_raid_group(user, raid_message.id, message.clean_content)
+        raid_channel = await start_raid_group(user, raid_message, message.clean_content)
         if raid_channel:
             started_dt = adjusted_datetime(raid_message.timestamp)
             expiration_dt = adjusted_datetime(get_raid_expiration(raid_message.timestamp))
@@ -499,19 +494,15 @@ async def on_message(message):
             join_emoji = get_join_emoji()
             await client.add_reaction(raid_message, join_emoji)
         else:
-            # notify them to use the backup raid channel, this won't be monitored
-            backup_channel = get_backup_channel(server)
-
-            m = await client.edit_message(raid_message,
-                                          '*"{}"*\n\n**in:** {}'.format(message.content, backup_channel.mention),
-                                          embed=get_raid_busy_embed(backup_channel))
+            m = await client.edit_message(raid_message, "", embed=get_raid_busy_embed())
             await client.add_reaction(m, get_full_emoji())
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
     elif is_raid_channel(channel) and message.content.startswith('$endraid'):
-        is_organizer = [role for role in get_raid_organizer_roles(user.server) if role in user.roles]
+        role = await get_raid_organizer_role(server)
+        is_organizer = role in user.roles
         if is_organizer:
             await end_raid_group(channel)
         else:
@@ -526,10 +517,6 @@ def get_args():
     from argparse import ArgumentParser
     parser = ArgumentParser(description="Pokemon Go discord bot for coordinating raids.")
     parser.add_argument("--token", required=True, default=None, help="The token to use when running the bot.")
-    parser.add_argument("--announcement-channel", required=True, default=None,
-                        help="Channel to listen for and announce raids on (default: %(default)s)")
-    parser.add_argument("--backup-raid-channel", default="raid-coordination",
-                        help="The channel to use when raid channels are unavailable (default: %(default)s)")
     parser.add_argument("--raid-channel-regex", default="^raid-group-.+",
                         help="Pattern which all raid channels must have. (default: %(default)s)")
     # matches if starts with raid- but not raid-group
@@ -539,10 +526,10 @@ def get_args():
                         help="Time until a raid group expires, in seconds (default: %(default)s).")
     parser.add_argument("--raid-cleanup-interval-seconds", type=int, default=60,
                         help="Time between checks for cleaning up raids (default: %(default)s)")
-    parser.add_argument("--raid-additional-roles", default=[], action='append',
-                        help="Additional roles to permission on active raid channels (default: %(default)s)")
-    parser.add_argument("--raid-organizer-roles", default=['raid-organizer'], action='append',
-                        help="Additional roles to help with coordinating raids (default: %(default)s)")
+    parser.add_argument("--raid-viewer-role-name", default="raid-viewer",
+                        help="Role to user for users that can view active raids without participating (default: %(default)s)")
+    parser.add_argument("--raid-organizer-role-name", default="raid-organizer",
+                        help="Role to use for users that can help organize raids (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
