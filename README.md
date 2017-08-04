@@ -13,4 +13,4 @@ Coming...
 
 ## License
 
-Public Domain
+This bot is in the public domain and unencumbered by copyright.
