@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import unittest
-import raid_bot.bot
+import raid_coordinator.bot
 
 
 class TestFoo(unittest.TestCase):

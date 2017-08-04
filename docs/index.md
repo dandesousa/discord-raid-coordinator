@@ -53,4 +53,4 @@ The suggested way to create raid group is to create a channel that satisfies the
 
 To run the bot, install the built wheel on your system and type:
 
-`raid_bot --token "YOUR BOT TOKEN HERE"`
+`raid_coordinator --token "YOUR BOT TOKEN HERE"`
