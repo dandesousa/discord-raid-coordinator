@@ -8,10 +8,10 @@ def my_test_suite():
     return test_suite
 
 
-setup(name='pokemon-go-raid-bot',
-      version='0.0.4',
+setup(name='discord-pogo-raid-coordinator',
+      version='0.1.0',
       author='Daniel DeSousa',
-      author_email='pgo-raid-bot@daniel.desousa.cc',
+      author_email='pogo-raid-coordinator@daniel.desousa.cc',
       packages=find_packages("src"),
       package_dir={"": "src"},
       include_package_data=True,
@@ -20,5 +20,5 @@ setup(name='pokemon-go-raid-bot',
         'pytz>=2017.2',
       ],
       test_suite='setup.my_test_suite',
-      entry_points={'console_scripts': ['raid_bot = raid_bot.bot:main', 'channel_repair = raid_bot.channels:main']}
+      entry_points={'console_scripts': ['raid_bot = raid_bot.bot:main']}
       )
