@@ -10,3 +10,7 @@ A discord bot for organizing raid groups.
 ## Documentation
 
 Coming...
+
+## License
+
+Public Domain
