@@ -1,2 +1,4 @@
 include LICENSE
 graft src
+include versioneer.py
+include src/raid_coordinator/_version.py

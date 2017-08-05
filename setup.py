@@ -1,5 +1,6 @@
 from setuptools import setup, find_packages
 import unittest
+import versioneer
 
 
 def my_test_suite():
@@ -9,7 +10,8 @@ def my_test_suite():
 
 
 setup(name='discord-raid-coordinator',
-      version='0.1.0',
+      version=versioneer.get_version(),
+      cmdclass=versioneer.get_cmdclass(),
       description="A discord bot for coordinating pokemon go raids.",
       author='Daniel DeSousa',
       author_email='discord-raid-coordinator@daniel.desousa.cc',
