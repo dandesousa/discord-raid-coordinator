@@ -76,7 +76,11 @@ You may then right click and hit `clone channel` to copy and make additional cha
 
 ### Running the Bot
 
-To run the bot, install the built wheel on your system and type:
+To run the bot, install the built wheel or use pip:
+
+`pip install discord-raid-coordinator`
+
+Launch the bot with this:
 
 `raid_coordinator --token "YOUR BOT TOKEN HERE"`
 

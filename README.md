@@ -9,11 +9,11 @@ A discord bot for organizing raid groups.
 - Python 3.5+
 - discord.py
 
-## Documentation
+## Documentation and Setup
 
 [](http://discord-raid-coordinator.readthedocs.io/en/latest/?badge=latest)
 
-[Latest](http://discord-raid-coordinator.readthedocs.io/en/latest/)
+[Latest Documentation](http://discord-raid-coordinator.readthedocs.io/en/latest/)
 
 ## License
 
