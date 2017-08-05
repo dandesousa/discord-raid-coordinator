@@ -9,7 +9,9 @@ A discord bot for organizing raid groups.
 
 ## Documentation
 
-Coming...
+[](http://discord-raid-coordinator.readthedocs.io/en/latest/?badge=latest)
+
+[Latest](http://discord-raid-coordinator.readthedocs.io/en/latest/)
 
 ## License
 
