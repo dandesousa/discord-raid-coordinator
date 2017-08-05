@@ -79,3 +79,17 @@ You may then right click and hit `clone channel` to copy and make additional cha
 To run the bot, install the built wheel on your system and type:
 
 `raid_coordinator --token "YOUR BOT TOKEN HERE"`
+
+### Testing the Bot
+
+To test the bot, you will need to enable it to announce raids on a channel-by-channel basis.
+
+The bot requires read and manage message permissions in any channel its capable of announcing raids.
+
+Make or update a channel with the following permissions:
+
+![](images/create_channel_perms2.png)
+
+Then, test the bot by mentioning a role that starts with `raid-`
+
+![](images/raid_start.png)
