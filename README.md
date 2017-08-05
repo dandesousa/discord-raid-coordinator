@@ -2,7 +2,7 @@
 
 A discord bot for organizing raid groups.
 
-![Start of a Raid](docs/images/raid_start.png)
+<img src="docs/images/raid_start.png" alt="" style="height: 100px;"/>
 
 ## Requirements
 
