@@ -61,7 +61,7 @@ First, create a new channel with the appropriate name (starting with `raid-group
 
 ![](images/create_channel_name.png)
 
-Then, make sure the bot has permission to read it (everyone's permission should be disabled).
+Then, make sure the bot has permission to read it (your role will be whatever role was created when you permissioned the bot for your server, not generic-raid-bot).
 
 ![](images/create_channel_bot.png)
 
