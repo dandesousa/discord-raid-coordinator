@@ -2,6 +2,8 @@
 
 A discord bot for organizing raid groups.
 
+![Start of a Raid](docs/images/raid_start.png)
+
 ## Requirements
 
 - Python 3.5+
