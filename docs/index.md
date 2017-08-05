@@ -10,6 +10,10 @@ This bot uses a convention for managing raids that has worked well for our group
 
 The bot will announce the raid and open up a private channel for discussing the raid. Other users may enter by reacting to this announcement with an emoji.
 
+When all raid channels are occupied, you will see the following message:
+
+![](images/raid_full.png)
+
 ## Features
 
 - Users can join / leave the raid at any time. 
@@ -50,7 +54,24 @@ The bot will automatically detect any channels it can use as a raid group. To be
     - Read Messages
     - Manage Messages
 
-The suggested way to create raid group is to create a channel that satisfies the above requirements. You may then right click and hit `clone channel` to copy and make additional channels. Make sure to name them uniquely so as not to confuse your members.
+
+#### Guide
+
+First, create a new channel with the appropriate name (starting with `raid-group-`)
+
+![](images/create_channel_name.png)
+
+Then, make sure the bot has permission to read it (everyone's permission should be disabled).
+
+![](images/create_channel_bot.png)
+
+Then, go into permissions and grant the bot permissions above
+
+![](images/create_channel_perms1.png)
+![](images/create_channel_perms2.png)
+
+
+You may then right click and hit `clone channel` to copy and make additional channels. Make sure to name them uniquely so as not to confuse your members.
 
 
 ### Running the Bot
