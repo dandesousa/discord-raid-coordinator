@@ -10,6 +10,7 @@ def my_test_suite():
 
 setup(name='discord-raid-coordinator',
       version='0.1.0',
+      description="A discord bot for coordinating pokemon go raids.",
       author='Daniel DeSousa',
       author_email='discord-raid-coordinator@daniel.desousa.cc',
       license='UNLICENSE',
