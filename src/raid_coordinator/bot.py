@@ -281,13 +281,17 @@ async def get_raid_creator(raid_channel):
                     return target
 
 
-async def is_raid_expired(raid_channel):
-    """Determines if the raid is expired."""
-    message = await get_announcement_message(raid_channel)
+def is_expired(message):
+    """Determines if a raid is expired, given its announcement message.
+
+    Message accepts the result returned by get_announcement_message (a valid obj or None).
+
+    :param message discord.Message: The announcement message associated with the raid.
+    :returns: True if the message/raid timestamp is expired
+    """
     if message is None:
         return True  # can't find message, clean up the raid channel
-    create_ts = message.timestamp.replace(tzinfo=timezone.utc).timestamp()
-    return settings.raid_duration_seconds < time.time() - create_ts
+    return (datetime.utcnow() - message.timestamp) > timedelta(seconds=settings.raid_duration_seconds)
 
 
 def get_available_raid_channel(server):
@@ -419,8 +423,8 @@ async def cleanup_raid_channels():
                 channels = get_raid_channels(server)
                 for channel in channels:
                     if not is_open(channel):
-                        expired = await is_raid_expired(channel)
-                        if expired or not get_raid_members(channel):
+                        message = await get_announcement_message(channel)
+                        if is_expired(message) or not get_raid_members(channel):
                             await end_raid_group(channel)
         except:
             print('An exception was thrown in the cleanup thread. But we saved it:')

@@ -23,6 +23,11 @@ setup(name='discord-raid-coordinator',
         'discord.py>=0.16.8',
         'pytz>=2017.2',
       ],
+      extras_require={
+        'test': [
+            'hypothesis>=3.16.0',
+        ]
+      },
       platforms='any',
       test_suite='setup.my_test_suite',
       entry_points={'console_scripts': ['raid_coordinator = raid_coordinator.bot:main']},
