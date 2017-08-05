@@ -508,6 +508,11 @@ async def on_message(message):
     if user == server.me:
         return
 
+    # We need the ability to manage messages, even in announcement channels
+    perms = channel.permissions_for(server.me)
+    if not perms.manage_messages:
+        return
+
     if channel not in get_raid_channels(server) and is_raid_start_message(message):
         # send the message, then edit the raid to avoid a double notification
         raid_message = await client.send_message(channel, "Looking for open channels...")
