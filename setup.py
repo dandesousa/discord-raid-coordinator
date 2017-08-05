@@ -10,8 +10,10 @@ def my_test_suite():
 
 setup(name='discord-raid-coordinator',
       version='0.1.0',
+      description="A discord bot for coordinating pokemon go raids.",
       author='Daniel DeSousa',
       author_email='discord-raid-coordinator@daniel.desousa.cc',
+      license='UNLICENSE',
       packages=find_packages("src"),
       package_dir={"": "src"},
       include_package_data=True,
@@ -19,6 +21,11 @@ setup(name='discord-raid-coordinator',
         'discord.py>=0.16.8',
         'pytz>=2017.2',
       ],
+      platforms='any',
       test_suite='setup.my_test_suite',
-      entry_points={'console_scripts': ['raid_coordinator = raid_coordinator.bot:main']}
-      )
+      entry_points={'console_scripts': ['raid_coordinator = raid_coordinator.bot:main']},
+      classifiers=[
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+      ],
+)
