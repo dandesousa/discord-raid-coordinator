@@ -1,0 +1,8 @@
+site_name: Raid Coordinator 
+repo_url: https://github.com/dandesousa/discord-raid-coordinator
+dev_addr: 127.0.0.1:9000
+theme: readthedocs
+site_author: Daniel DeSousa
+pages:
+    - ['index.md', 'Overview']
+    - ['faqs.md', 'FAQs']
