@@ -41,8 +41,8 @@ def get_config():
     cfg = VersioneerConfig()
     cfg.VCS = "git"
     cfg.style = "pep440"
-    cfg.tag_prefix = "discord-raid-coordinator-"
-    cfg.parentdir_prefix = "None"
+    cfg.tag_prefix = ""
+    cfg.parentdir_prefix = "''"
     cfg.versionfile_source = "src/raid_coordinator/_version.py"
     cfg.verbose = False
     return cfg
