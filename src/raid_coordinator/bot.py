@@ -402,7 +402,8 @@ async def uninvite_user_from_raid(channel, user):
     # remove the messages emoji
     server = channel.server
     announcement_message = await get_announcement_message(channel)
-    await client.remove_reaction(announcement_message, get_join_emoji(), user)
+    if announcement_message is not None:
+        await client.remove_reaction(announcement_message, get_join_emoji(), user)
 
 
 async def list_raid_members(channel):
