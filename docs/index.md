@@ -84,6 +84,15 @@ Launch the bot with this:
 
 `raid_coordinator --token "YOUR BOT TOKEN HERE"`
 
+#### Optional Roles
+
+To create the auxillary roles (like raid-viewer, raid-organizer) the first time run:
+
+`raid_coordinator --token "YOUR BOT TOKEN HERE"` --create-roles
+
+Afterwards, you can run the bot without the argument.
+
+
 ### Testing the Bot
 
 To test the bot, you will need to enable it to announce raids on a channel-by-channel basis.
