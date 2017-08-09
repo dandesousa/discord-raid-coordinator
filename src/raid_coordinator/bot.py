@@ -21,7 +21,7 @@ client = discord.Client(max_messages=MAX_MESSAGES)
 settings = None
 
 
-async def get_or_create_role(server, name):
+async def get_or_create_role(server, name, create=False):
     """
     Given a server and of the role:
 
@@ -29,7 +29,7 @@ async def get_or_create_role(server, name):
         - Or, creates the role and returns it
     """
     role = discord.utils.find(lambda r: r.name == name, server.roles)
-    if role is None:
+    if role is None and create:
         role = await client.create_role(server, name=name, mentionable=False)
     return role
 
@@ -38,7 +38,7 @@ async def get_raid_viewer_role(server):
     """
     Gets the role for users that want to view active raid channels.
     """
-    role = await get_or_create_role(server, settings.raid_viewer_role_name)
+    role = await get_or_create_role(server, settings.raid_viewer_role_name, create=settings.create_roles)
     return role
 
 
@@ -46,7 +46,7 @@ async def get_raid_organizer_role(server):
     """
     Gets the role for users that want to assist with organizing raids.
     """
-    role = await get_or_create_role(server, settings.raid_organizer_role_name)
+    role = await get_or_create_role(server, settings.raid_organizer_role_name, create=settings.create_roles)
     return role
 
 
@@ -329,7 +329,8 @@ async def start_raid_group(user, message, description):
         # set channel permissions to make raid viewers see the raid.
         perms = discord.PermissionOverwrite(read_messages=True)
         role = await get_raid_viewer_role(server)
-        await client.edit_channel_permissions(channel, role, perms)
+        if role is not None:
+            await client.edit_channel_permissions(channel, role, perms)
 
         return channel
 
@@ -453,10 +454,12 @@ async def on_ready():
 
         # get the roles
         role = await get_raid_viewer_role(server)
-        print('raid viewer role: {}'.format(role.name))
+        if role is not None:
+            print('raid viewer role: {}'.format(role.name))
 
         role = await get_raid_organizer_role(server)
-        print('raid organizer role: {}'.format(role.name))
+        if role is not None:
+            print('raid organizer role: {}'.format(role.name))
 
 
 @client.event
@@ -545,7 +548,7 @@ async def on_message(message):
 
     elif is_raid_channel(channel) and message.content.startswith('$endraid'):
         role = await get_raid_organizer_role(server)
-        is_organizer = role in user.roles
+        is_organizer = role is not None and role in user.roles
         if is_organizer:
             await end_raid_group(channel)
         else:
@@ -571,6 +574,8 @@ def get_args():
                         help="Time between checks for cleaning up raids (default: %(default)s)")
     parser.add_argument("--raid-viewer-role-name", default="raid-viewer",
                         help="Role to user for users that can view active raids without participating (default: %(default)s)")
+    parser.add_argument("--create-roles", default=False, action="store_true",
+                        help="If set, will create raid-organizer and raid-viewer roles.")
     parser.add_argument("--raid-organizer-role-name", default="raid-organizer",
                         help="Role to use for users that can help organize raids (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
