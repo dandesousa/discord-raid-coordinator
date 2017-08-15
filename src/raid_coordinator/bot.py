@@ -20,6 +20,9 @@ client = discord.Client(max_messages=MAX_MESSAGES)
 # bot specific settings
 settings = None
 
+# list of channels in progress
+locked_channels = set()
+
 
 async def get_or_create_role(server, name, create=False):
     """
@@ -50,6 +53,13 @@ async def get_raid_organizer_role(server):
     return role
 
 
+def get_active_raids_channel(server):
+    """
+    Gets the active raids channel.
+    """
+    return discord.utils.find(lambda c: c.name == settings.active_raids_channel_name, server.channels)
+
+
 def encode_message(message):
     """Encodes a message for storage in the channel topic."""
     return "{}|{}".format(message.channel.id, message.id)
@@ -70,8 +80,7 @@ def lookup_raid_channel(message):
 
     In order for this to return a valid discord channel the following needs to be true:
         - The channel must be mentioned in the message
-        - The channel mentioned must have a topic which decodes into the message and channel corresponding to this
-        message
+        - The channel mentioned must have a topic which decodes
 
     Expired channels or other channels will not resolve into raid_channels with this call.
     """
@@ -79,7 +88,8 @@ def lookup_raid_channel(message):
     if message.channel_mentions:
         raid_channel = message.channel_mentions[0]
         channel_id, message_id = decode_message(raid_channel.topic)
-        return raid_channel if message.channel.id == channel_id and message_id == message.id else None
+        if channel_id and message_id:
+            return raid_channel
 
 
 def get_raid_channels(server):
@@ -154,6 +164,17 @@ def get_raid_start_embed(creator, started_dt, expiration_dt):
     embed.color = discord.Color.green()
     embed.title = 'A raid has started!'
     embed.add_field(name='creator', value=creator.mention, inline=True)
+    embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
+    embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format), inline=False)
+    embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
+    return embed
+
+
+def get_raid_active_embed(num_members, started_dt, expiration_dt):
+    """Constructs an embed for the start of a raid."""
+    embed = discord.Embed()
+    embed.color = discord.Color.green()
+    embed.add_field(name='members', value=num_members, inline=True)
     embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
     embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format), inline=False)
     embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
@@ -264,7 +285,7 @@ async def get_raid_creator(raid_channel):
     Pulls and resolves this information from the announcement embed.
     """
     message = await get_announcement_message(raid_channel)
-    if message and message.embeds:
+    if message is not None and message.embeds:
         embed = message.embeds[0]
         fields = embed.get('fields', [])
         if fields:
@@ -300,7 +321,7 @@ def get_available_raid_channel(server):
     We may need to wrap function calls to this in a lock.
     """
     for channel in get_raid_channels(server):
-        if is_open(channel):
+        if channel not in locked_channels and is_open(channel):
             return channel
 
 
@@ -313,24 +334,32 @@ async def start_raid_group(user, message, description):
     channel = get_available_raid_channel(server)
 
     if channel:
-        # set the topic
-        await client.edit_channel(channel, topic=encode_message(message))
+        # lock the channel
+        locked_channels.add(channel)
 
-        # create a role with the same name as this channel
-        role = await client.create_role(server, name=channel.name, mentionable=True)
+        try:
+            # set the topic
+            await client.edit_channel(channel, topic=encode_message(message))
 
-        # calculate expiration time
-        expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
-        summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, channel.name, expiration_dt, description))
+            # create a role with the same name as this channel
+            role = await client.create_role(server, name=channel.name, mentionable=True)
 
-        # add shortcut reactions for commands
-        await client.add_reaction(summary_message, get_leave_emoji())
+            # calculate expiration time
+            expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
+            summary_message = await client.send_message(channel, embed=get_raid_summary_embed(user, channel.name, expiration_dt, description))
 
-        # set channel permissions to make raid viewers see the raid.
-        perms = discord.PermissionOverwrite(read_messages=True)
-        role = await get_raid_viewer_role(server)
-        if role is not None:
-            await client.edit_channel_permissions(channel, role, perms)
+            # add shortcut reactions for commands
+            await client.add_reaction(summary_message, get_leave_emoji())
+
+            # set channel permissions to make raid viewers see the raid.
+            perms = discord.PermissionOverwrite(read_messages=True)
+            role = await get_raid_viewer_role(server)
+            if role is not None:
+                await client.edit_channel_permissions(channel, role, perms)
+
+        finally:
+            # unlock the channel
+            locked_channels.remove(channel)
 
         return channel
 
@@ -361,7 +390,7 @@ async def end_raid_group(channel):
 
     # update the message if its available
     message = await get_announcement_message(channel)
-    if message:
+    if message is not None:
         started_dt = adjusted_datetime(message.timestamp)
         ended_dt = adjusted_datetime(datetime.utcnow())
         await client.edit_message(message, embed=get_raid_end_embed(creator, started_dt, ended_dt))
@@ -402,13 +431,49 @@ async def uninvite_user_from_raid(channel, user):
     # remove the messages emoji
     server = channel.server
     announcement_message = await get_announcement_message(channel)
-    await client.remove_reaction(announcement_message, get_join_emoji(), user)
+    if announcement_message is not None:
+        await client.remove_reaction(announcement_message, get_join_emoji(), user)
 
 
 async def list_raid_members(channel):
     """Lists the members of a raid channel in the channel."""
     members = get_raid_members(channel)
     await client.send_message(channel, embed=get_raid_members_embed(members))
+
+
+async def list_active_raids(server):
+    """Lists the active raids in the active raids channel."""
+    # gets the channel where active raids are found
+    channel = get_active_raids_channel(server)
+
+    # no channel, skip this
+    if channel is None:
+        return
+
+    # gets all current active raids
+    active_raid_channels = [(rc, get_raid_members(rc)) for rc in get_raid_channels(server) if not is_open(rc)]
+
+    # purges the current list of raids
+    await client.purge_from(channel)
+
+    # write the current raids
+    num_messages = 0
+    for rc, members in active_raid_channels:
+        message = await get_announcement_message(rc)
+        if message is not None:
+            num_messages += 1
+            active_message = await client.send_message(channel, "Fetching raid...")
+            started_dt = adjusted_datetime(message.timestamp)
+            expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
+            await client.edit_message(active_message, message.content, embed=get_raid_active_embed(len(members), started_dt, expiration_dt))
+
+            join_emoji = get_join_emoji()
+            await client.add_reaction(active_message, join_emoji)
+
+    if not num_messages:
+        text = "No raids currently active (this updates every {} seconds).".format(settings.raid_cleanup_interval_seconds)
+        await client.send_message(channel, embed=get_success_embed(text))
+
 
 
 async def cleanup_raid_channels():
@@ -423,10 +488,14 @@ async def cleanup_raid_channels():
             for server in client.servers:
                 channels = get_raid_channels(server)
                 for channel in channels:
-                    if not is_open(channel):
+                    if channel not in locked_channels and not is_open(channel):
                         message = await get_announcement_message(channel)
                         if is_expired(message) or not get_raid_members(channel):
                             await end_raid_group(channel)
+
+                # list the active raids every cycle
+                await list_active_raids(server)
+
         except:
             print('An exception was thrown in the cleanup thread. But we saved it:')
             traceback.print_exc()
@@ -460,6 +529,10 @@ async def on_ready():
         role = await get_raid_organizer_role(server)
         if role is not None:
             print('raid organizer role: {}'.format(role.name))
+
+        channel = get_active_raids_channel(server)
+        if channel is not None:
+            print('active raids channel: {}'.format(channel.name))
 
 
 @client.event
@@ -578,6 +651,7 @@ def get_args():
                         help="If set, will create raid-organizer and raid-viewer roles.")
     parser.add_argument("--raid-organizer-role-name", default="raid-organizer",
                         help="Role to use for users that can help organize raids (default: %(default)s)")
+    parser.add_argument("--active-raids-channel-name", default=None, help="Channel where active raids are listed (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
