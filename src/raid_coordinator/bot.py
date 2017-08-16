@@ -342,6 +342,9 @@ async def start_raid_group(user, message, description):
         # lock the channel
         locked_channels.add(channel)
 
+        # purge all messages
+        await client.purge_from(channel)
+
         try:
             # set the topic
             await client.edit_channel(channel, topic=encode_message(message))
