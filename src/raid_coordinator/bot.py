@@ -23,6 +23,9 @@ settings = None
 # list of channels in progress
 locked_channels = set()
 
+# whether to refresh the active raids
+should_refresh_active_raids = True
+
 
 async def get_or_create_role(server, name, create=False):
     """
@@ -327,6 +330,8 @@ def get_available_raid_channel(server):
 
 async def start_raid_group(user, message, description):
     """Starts a new raid group."""
+    global should_refresh_active_raids
+
     # get the server
     server = user.server
 
@@ -361,11 +366,16 @@ async def start_raid_group(user, message, description):
             # unlock the channel
             locked_channels.remove(channel)
 
+            # refresh active raids in future
+            should_refresh_active_raids = True
+
         return channel
 
 
 async def end_raid_group(channel):
     """Ends a raid group."""
+    global should_refresh_active_raids
+
     server = channel.server
 
     # get the creator before we remove roles
@@ -398,6 +408,9 @@ async def end_raid_group(channel):
 
     # remove the topic
     channel = await client.edit_channel(channel, topic=None)
+
+    # refresh the raids
+    should_refresh_active_raids = True
 
 
 async def invite_user_to_raid(channel, user):
@@ -473,7 +486,7 @@ async def list_active_raids(server):
             await client.add_reaction(active_message, join_emoji)
 
     if not num_messages:
-        text = "No raids currently active (this updates every {} seconds).".format(settings.raid_cleanup_interval_seconds)
+        text = "No raids currently active (raids updated every {} seconds).".format(settings.raid_cleanup_interval_seconds)
         await client.send_message(channel, embed=get_success_embed(text))
 
 
@@ -484,6 +497,8 @@ async def cleanup_raid_channels():
     This function is intentionally defensive, to prevent this task from dying and locking
     up raid channels which never expire.
     """
+    global should_refresh_active_raids
+
     await client.wait_until_ready()
     while not client.is_closed:
         try:
@@ -496,7 +511,9 @@ async def cleanup_raid_channels():
                             await end_raid_group(channel)
 
                 # list the active raids every cycle
-                await list_active_raids(server)
+                if should_refresh_active_raids:
+                    await list_active_raids(server)
+                    should_refresh_active_raids = False
 
         except:
             print('An exception was thrown in the cleanup thread. But we saved it:')
