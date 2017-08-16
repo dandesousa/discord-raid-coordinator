@@ -462,10 +462,12 @@ async def list_active_raids(server):
         message = await get_announcement_message(rc)
         if message is not None:
             num_messages += 1
-            active_message = await client.send_message(channel, "Fetching raid...")
             started_dt = adjusted_datetime(message.timestamp)
             expiration_dt = adjusted_datetime(get_raid_expiration(message.timestamp))
-            await client.edit_message(active_message, message.content, embed=get_raid_active_embed(len(members), started_dt, expiration_dt))
+            clean_text, _ = message.clean_content.rsplit('\n', 1)
+            _, channel_text = message.content.rsplit('\n', 1)
+            text = '{}\n{}'.format(clean_text, channel_text)
+            active_message = await client.send_message(channel, text, embed=get_raid_active_embed(len(members), started_dt, expiration_dt))
 
             join_emoji = get_join_emoji()
             await client.add_reaction(active_message, join_emoji)
@@ -601,7 +603,7 @@ async def on_message(message):
             started_dt = adjusted_datetime(raid_message.timestamp)
             expiration_dt = adjusted_datetime(get_raid_expiration(raid_message.timestamp))
             raid_message = await client.edit_message(raid_message,
-                                                     '**{}**\n\n**in:** {}'.format(message.content, raid_channel.mention),
+                                                     '**{}**\n**in:** {}'.format(message.clean_content, raid_channel.mention),
                                                      embed=get_raid_start_embed(user, started_dt, expiration_dt))
 
             # invite the member
