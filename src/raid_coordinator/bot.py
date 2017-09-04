@@ -151,6 +151,11 @@ def get_raid_role(channel):
     return discord.utils.find(lambda r: r.name == channel.name, channel.server.roles)
 
 
+def created_by_bot(channel):
+    creator = get_raid_creator(channel)
+    return creator is None or creator.bot
+
+
 def get_raid_members(channel):
     """Gets the raid members in this channel."""
     return [target for target, _ in channel.overwrites if isinstance(target, discord.User)]
@@ -179,13 +184,13 @@ def get_raid_active_embed(num_members, started_dt, expiration_dt):
     return embed
 
 
-def get_raid_end_embed(creator, started_dt, ended_dt):
+def get_raid_end_embed(creator, started_dt, ended_dt, default_creator=None):
     """Constructs an embed for the end of a raid."""
     duration = ended_dt - started_dt
     embed = discord.Embed()
     embed.color = discord.Color.red()
     embed.title = 'This raid has ended.'
-    embed.add_field(name='creator', value=creator.display_name if creator else None, inline=True)
+    embed.add_field(name='creator', value=creator.display_name if creator else default_creator, inline=True)
     embed.add_field(name='duration', value=strfdelta(duration, '{hours:02}:{minutes:02}:{seconds:02}'), inline=True)
     embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
     embed.add_field(name='ended at', value=ended_dt.strftime(settings.time_format), inline=False)
@@ -278,9 +283,7 @@ async def get_announcement_message(raid_channel):
 
 
 def get_raid_creator(raid_channel):
-    """Gets the user who created the raid.
-
-    Pulls and resolves this information from the announcement embed.
+    """Gets the member who created the raid.
     """
     creator_id, _, _ = decode_message(raid_channel.topic)
     return raid_channel.server.get_member(creator_id)
@@ -312,8 +315,8 @@ async def start_raid_group(user, message, description):
     """Starts a new raid group."""
     global should_refresh_active_raids
 
-    # get the server
-    server = user.server
+    # get the server, use the message because user might be a webhook with no server
+    server = message.server
 
     # find an available raid channel
     channel = get_available_raid_channel(server)
@@ -355,6 +358,18 @@ async def start_raid_group(user, message, description):
         return channel
 
 
+async def get_original_creator_name(raid_channel):
+    """Gets the user who created the raid.
+    Pulls and resolves this information from the announcement embed.
+    """
+    message = await get_announcement_message(raid_channel)
+    if message is not None and message.embeds:
+        embed = message.embeds[0]
+        fields = embed.get('fields', [])
+        if fields:
+            return fields[0]['value']
+
+
 async def end_raid_group(channel):
     """Ends a raid group."""
     global should_refresh_active_raids
@@ -363,6 +378,9 @@ async def end_raid_group(channel):
 
     # get the creator before we remove roles
     creator = get_raid_creator(channel)
+    original_creator_name = None
+    if creator is None:
+        original_creator_name = await get_original_creator_name(channel)
 
     # remove all the permissions
     role = await get_raid_viewer_role(server)
@@ -386,7 +404,7 @@ async def end_raid_group(channel):
     if message is not None:
         started_dt = adjusted_datetime(message.timestamp)
         ended_dt = adjusted_datetime(datetime.utcnow())
-        await client.edit_message(message, embed=get_raid_end_embed(creator, started_dt, ended_dt))
+        await client.edit_message(message, embed=get_raid_end_embed(creator, started_dt, ended_dt, original_creator_name))
         await client.clear_reactions(message)
 
     # remove the topic
@@ -398,6 +416,10 @@ async def end_raid_group(channel):
 
 async def invite_user_to_raid(channel, user):
     """Invites a user to the raid channel."""
+    # don't invite bots and webhooks
+    if user.bot:
+        return
+
     # adds an overwrite for the user
     perms = discord.PermissionOverwrite(read_messages=True)
     await client.edit_channel_permissions(channel, user, perms)
@@ -415,6 +437,10 @@ async def invite_user_to_raid(channel, user):
 
 async def uninvite_user_from_raid(channel, user):
     """Removes a user from a raid channel."""
+    # skip bots and webhooks
+    if user.bot:
+        return
+
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
     await client.send_message(channel, embed=get_error_embed('{} has the left raid!'.format(user.display_name)))
@@ -490,7 +516,7 @@ async def cleanup_raid_channels():
                 for channel in channels:
                     if channel not in locked_channels and not is_open(channel):
                         message = await get_announcement_message(channel)
-                        if is_expired(message) or not get_raid_members(channel):
+                        if is_expired(message) or (not created_by_bot(channel) and not get_raid_members(channel)):
                             await end_raid_group(channel)
 
                 # list the active raids every cycle
