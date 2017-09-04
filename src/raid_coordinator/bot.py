@@ -288,6 +288,7 @@ def get_raid_creator(raid_channel):
     creator_id, _, _ = decode_message(raid_channel.topic)
     return raid_channel.server.get_member(creator_id)
 
+
 def is_expired(message):
     """Determines if a raid is expired, given its announcement message.
 
