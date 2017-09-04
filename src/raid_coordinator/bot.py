@@ -467,6 +467,7 @@ async def post_google_maps_directions(channel, address):
     is preferrable to geocoding for raids, since it has no api limits and
     handle informal addresses and geocoding on google's side.
     """
+    address = address.strip()
     url_data = {
         'api': '1',
         'destination': address
@@ -474,7 +475,7 @@ async def post_google_maps_directions(channel, address):
     query = urllib.parse.urlencode(url_data)
     base_url = 'https://www.google.com/maps/dir/?'
     url = base_url + query
-    await client.send_message(channel, embed=get_success_embed("Directions: {}".format(url)))
+    await client.send_message(channel, url, embed=get_success_embed("Direction to '{}'".format(address)))
 
 
 async def list_raid_members(channel):
