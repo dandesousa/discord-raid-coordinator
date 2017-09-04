@@ -3,6 +3,7 @@ import discord
 import re
 import traceback
 import pytz
+import urllib.parse
 from datetime import datetime, timedelta
 
 
@@ -243,6 +244,7 @@ def get_raid_summary_embed(creator, channel_name, expiration_dt, text):
     embed.add_field(name="$leaveraid", value="Removes you from this raid.", inline=False)
     embed.add_field(name="$listraid", value="Shows all current members of this raid channel.", inline=False)
     embed.add_field(name="$endraid", value="Ends the raid and closes the channel.", inline=False)
+    embed.add_field(name="$map <address>", value="Gets a link to directions for the address provided.", inline=False)
     embed.set_footer(text='You can also leave the raid with the {} reaction below.'.format(get_leave_emoji()))
     embed.color = discord.Color.green()
     return embed
@@ -458,6 +460,23 @@ async def uninvite_user_from_raid(channel, user):
         await client.remove_reaction(announcement_message, get_join_emoji(), user)
 
 
+async def post_google_maps_directions(channel, address):
+    """Simplified post that sends a google maps url to the server.
+
+    Uses the address posted by the user using the map url api. This api
+    is preferrable to geocoding for raids, since it has no api limits and
+    handle informal addresses and geocoding on google's side.
+    """
+    url_data = {
+        'api': '1',
+        'destination': address
+    }
+    query = urllib.parse.urlencode(url_data)
+    base_url = 'https://www.google.com/maps/dir/?'
+    url = base_url + query
+    await client.send_message(channel, embed=get_success_embed("Directions: {}".format(url)))
+
+
 async def list_raid_members(channel):
     """Lists the members of a raid channel in the channel."""
     members = get_raid_members(channel)
@@ -644,6 +663,10 @@ async def on_message(message):
             await client.add_reaction(m, get_full_emoji())
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
+
+    elif is_raid_channel(channel) and message.content.startswith('$map'):
+        address = message.content.replace('$map', '', 1)
+        await post_google_maps_directions(channel, address)
 
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
