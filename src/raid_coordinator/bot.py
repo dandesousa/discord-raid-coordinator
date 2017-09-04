@@ -1,14 +1,9 @@
 import asyncio
 import discord
-import functools
-import json
 import re
-import sys
-import time
 import traceback
 import pytz
-from collections import namedtuple
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 
 # buffer for busier servers
@@ -63,19 +58,19 @@ def get_active_raids_channel(server):
     return discord.utils.find(lambda c: c.name == settings.active_raids_channel_name, server.channels)
 
 
-def encode_message(message):
+def encode_message(creator, message):
     """Encodes a message for storage in the channel topic."""
-    return "{}|{}".format(message.channel.id, message.id)
+    return "{}|{}|{}".format(creator.id, message.channel.id, message.id)
 
 
 def decode_message(data):
     """Decodes a channel topic into a channel id, message id tuple."""
     try:
-        channel_id, message_id = data.split('|')
+        creator_id, channel_id, message_id = data.split('|')
     except:
-        return None, None
+        return None, None, None
 
-    return channel_id, message_id
+    return creator_id, channel_id, message_id
 
 
 def lookup_raid_channel(message):
@@ -90,7 +85,7 @@ def lookup_raid_channel(message):
     server = message.server
     if message.channel_mentions:
         raid_channel = message.channel_mentions[0]
-        channel_id, message_id = decode_message(raid_channel.topic)
+        _, channel_id, message_id = decode_message(raid_channel.topic)
         if channel_id and message_id:
             return raid_channel
 
@@ -166,7 +161,7 @@ def get_raid_start_embed(creator, started_dt, expiration_dt):
     embed = discord.Embed()
     embed.color = discord.Color.green()
     embed.title = 'A raid has started!'
-    embed.add_field(name='creator', value=creator.mention, inline=True)
+    embed.add_field(name='creator', value=creator.display_name, inline=True)
     embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
     embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format), inline=False)
     embed.set_footer(text='To join, tap {} below'.format(get_join_emoji()))
@@ -190,7 +185,7 @@ def get_raid_end_embed(creator, started_dt, ended_dt):
     embed = discord.Embed()
     embed.color = discord.Color.red()
     embed.title = 'This raid has ended.'
-    embed.add_field(name='creator', value=creator.mention if creator else None, inline=True)
+    embed.add_field(name='creator', value=creator.display_name if creator else None, inline=True)
     embed.add_field(name='duration', value=strfdelta(duration, '{hours:02}:{minutes:02}:{seconds:02}'), inline=True)
     embed.add_field(name='started at', value=started_dt.strftime(settings.time_format), inline=False)
     embed.add_field(name='ended at', value=ended_dt.strftime(settings.time_format), inline=False)
@@ -236,7 +231,7 @@ def get_raid_summary_embed(creator, channel_name, expiration_dt, text):
     embed = discord.Embed()
     embed.title = 'Welcome to this raid channel!'
     embed.description = "**{}**".format(text)
-    embed.add_field(name='creator', value=creator.mention)
+    embed.add_field(name='creator', value=creator.display_name)
     embed.add_field(name='channel expires', value=expiration_dt.strftime(settings.time_format))
     embed.add_field(name='raid group', value='@{}'.format(channel_name), inline=False)
     embed.add_field(name="commands", value="You can use the following commands:", inline=False)
@@ -272,7 +267,7 @@ def is_open(channel):
 async def get_announcement_message(raid_channel):
     """Gets the message that created this channel."""
     server = raid_channel.server
-    channel_id, message_id = decode_message(raid_channel.topic)
+    _, channel_id, message_id = decode_message(raid_channel.topic)
     try:
         channel = server.get_channel(channel_id)
         if channel:
@@ -282,28 +277,13 @@ async def get_announcement_message(raid_channel):
         return None  # an error occurred, return None TODO: log here
 
 
-async def get_raid_creator(raid_channel):
+def get_raid_creator(raid_channel):
     """Gets the user who created the raid.
 
     Pulls and resolves this information from the announcement embed.
     """
-    message = await get_announcement_message(raid_channel)
-    if message is not None and message.embeds:
-        embed = message.embeds[0]
-        fields = embed.get('fields', [])
-        if fields:
-            creator_mention = fields[0]['value']
-
-            # try in the overwrites
-            for target, _ in raid_channel.overwrites:
-                if isinstance(target, discord.User) and target.mention == creator_mention:
-                    return target
-
-            # otherwise try in the server users (less efficient but right)
-            for target in raid_channel.server.members:
-                if isinstance(target, discord.User) and target.mention == creator_mention:
-                    return target
-
+    creator_id, _, _ = decode_message(raid_channel.topic)
+    return raid_channel.server.get_member(creator_id)
 
 def is_expired(message):
     """Determines if a raid is expired, given its announcement message.
@@ -347,7 +327,7 @@ async def start_raid_group(user, message, description):
 
         try:
             # set the topic
-            await client.edit_channel(channel, topic=encode_message(message))
+            await client.edit_channel(channel, topic=encode_message(user, message))
 
             # create a role with the same name as this channel
             role = await client.create_role(server, name=channel.name, mentionable=True)
@@ -382,7 +362,7 @@ async def end_raid_group(channel):
     server = channel.server
 
     # get the creator before we remove roles
-    creator = await get_raid_creator(channel)
+    creator = get_raid_creator(channel)
 
     # remove all the permissions
     role = await get_raid_viewer_role(server)
@@ -430,14 +410,14 @@ async def invite_user_to_raid(channel, user):
     # sends a message to the raid channel the user was added
     await client.send_message(channel,
                               "{}, you are now a member of this raid group.".format(user.mention),
-                              embed=get_success_embed('{} has joined the raid!'.format(user.mention)))
+                              embed=get_success_embed('{} has joined the raid!'.format(user.display_name)))
 
 
 async def uninvite_user_from_raid(channel, user):
     """Removes a user from a raid channel."""
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
-    await client.send_message(channel, embed=get_error_embed('{} has the left raid!'.format(user.mention)))
+    await client.send_message(channel, embed=get_error_embed('{} has the left raid!'.format(user.display_name)))
 
     # delete user from role
     role = get_raid_role(channel)
@@ -647,7 +627,7 @@ async def on_message(message):
         if is_organizer:
             await end_raid_group(channel)
         else:
-            creator = await get_raid_creator(channel)
+            creator = get_raid_creator(channel)
             if user == creator:
                 await end_raid_group(channel)
             else:
