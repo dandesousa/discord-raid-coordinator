@@ -637,8 +637,16 @@ async def on_message(message):
     if user == server.me:
         return
 
-    # We need the ability to manage messages, even in announcement channels
+    # try simple commands first
     perms = channel.permissions_for(server.me)
+
+    if perms.send_messages:
+        if message.content.startswith('$map'):
+            address = message.content.replace('$map', '', 1)
+            await post_google_maps_directions(channel, address)
+            return
+
+    # We need the ability to manage messages, even in announcement channels
     if not perms.manage_messages:
         return
 
@@ -664,10 +672,6 @@ async def on_message(message):
             await client.add_reaction(m, get_full_emoji())
     elif is_raid_channel(channel) and message.content.startswith('$leaveraid'):
         await uninvite_user_from_raid(channel, user)
-
-    elif is_raid_channel(channel) and message.content.startswith('$map'):
-        address = message.content.replace('$map', '', 1)
-        await post_google_maps_directions(channel, address)
 
     elif is_raid_channel(channel) and message.content.startswith('$listraid'):
         await list_raid_members(channel)
