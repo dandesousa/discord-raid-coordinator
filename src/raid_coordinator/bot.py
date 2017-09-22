@@ -419,9 +419,14 @@ async def end_raid_group(channel):
 
 async def invite_user_to_raid(channel, user):
     """Invites a user to the raid channel."""
+    global should_refresh_active_raids
+
     # don't invite bots and webhooks
     if user.bot:
         return
+
+    # refresh active raids in future
+    should_refresh_active_raids = True
 
     # adds an overwrite for the user
     perms = discord.PermissionOverwrite(read_messages=True)
@@ -440,9 +445,14 @@ async def invite_user_to_raid(channel, user):
 
 async def uninvite_user_from_raid(channel, user):
     """Removes a user from a raid channel."""
+    global should_refresh_active_raids
+
     # skip bots and webhooks
     if user.bot:
         return
+
+    # refresh active raids in future
+    should_refresh_active_raids = True
 
     # reflect the proper number of members (the bot role and everyone are excluded)
     await client.delete_channel_permissions(channel, user)
