@@ -20,6 +20,7 @@ settings = None
 locked_channels = set()
 
 # whether to refresh the active raids
+# NB: to handle multiple server, this should be a map from server to constant
 should_refresh_active_raids = True
 
 
@@ -539,6 +540,9 @@ async def cleanup_raid_channels():
     """
     global should_refresh_active_raids
 
+    last_active_raid_refresh_time = datetime.utcnow()
+    max_active_raids_channel_age = timedelta(seconds=settings.active_raids_channel_max_age_seconds)
+
     await client.wait_until_ready()
     while not client.is_closed:
         try:
@@ -550,10 +554,15 @@ async def cleanup_raid_channels():
                         if is_expired(message) or (not created_by_bot(channel) and not get_raid_members(channel)):
                             await end_raid_group(channel)
 
+                # refresh the active raids if it has been too long
+                if datetime.utcnow() - last_active_raid_refresh_time > max_active_raids_channel_age:
+                    should_refresh_active_raids = True
+
                 # list the active raids every cycle
                 if should_refresh_active_raids:
                     await list_active_raids(server)
                     should_refresh_active_raids = False
+                    last_active_raid_refresh_time = datetime.utcnow()
 
         except:
             print('An exception was thrown in the cleanup thread. But we saved it:')
@@ -718,6 +727,8 @@ def get_args():
                         help="If set, will create raid-organizer and raid-viewer roles.")
     parser.add_argument("--raid-organizer-role-name", default="raid-organizer",
                         help="Role to use for users that can help organize raids (default: %(default)s)")
+    parser.add_argument("--active-raids-channel-max-age-seconds", type=int, default=7200,
+                        help="Refreshes the active raids channel this often, even if there are no changes (default: %(default)s)")
     parser.add_argument("--active-raids-channel-name", default=None, help="Channel where active raids are listed (default: %(default)s)")
     parser.add_argument("--raid-join-emoji", default='\U0001F464', help="Emoji used for joining raids (default: %(default)s)")
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
