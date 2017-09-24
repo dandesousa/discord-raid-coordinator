@@ -555,7 +555,8 @@ async def cleanup_raid_channels():
                             await end_raid_group(channel)
 
                 # refresh the active raids if it has been too long
-                if datetime.utcnow() - last_active_raid_refresh_time > max_active_raids_channel_age:
+                raids_in_progress = any(not is_open(channel) for channel in channels)
+                if raids_in_progress and datetime.utcnow() - last_active_raid_refresh_time > max_active_raids_channel_age:
                     should_refresh_active_raids = True
 
                 # list the active raids every cycle
