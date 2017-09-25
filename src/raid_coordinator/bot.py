@@ -642,7 +642,7 @@ async def on_reaction_remove(reaction, user):
 
     if reaction.emoji == get_join_emoji():
         raid_channel = lookup_raid_channel(message)
-        if raid_channel:
+        if is_raid_channel(raid_channel):
             # NB: use overwrites for, since admins otherwise won't be notified
             # we know the channel is private and only overwrites matter
             if not raid_channel.overwrites_for(user).is_empty():
