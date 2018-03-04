@@ -25,7 +25,7 @@ setup(name='discord-raid-coordinator',
       ],
       extras_require={
         'test': [
-            'hypothesis>=3.16.0',
+            'hypothesis==3.16.0',
         ]
       },
       platforms='any',
