@@ -20,7 +20,7 @@ setup(name='discord-raid-coordinator',
       package_dir={"": "src"},
       include_package_data=True,
       install_requires=[
-        'discord.py>=0.16.8',
+        'discord.py>=0.16.8,<0.16.9',
         'pytz>=2017.2',
       ],
       extras_require={
