@@ -133,8 +133,9 @@ def strfdelta(tdelta, fmt):
     return fmt.format(**d)
 
 
-def adjusted_datetime(dt, tz='US/Eastern'):
+def adjusted_datetime(dt):
     """Adjusts time to the appropriate timezone depending the server region."""
+    tz = settings.time_zone
     zone = pytz.timezone(tz)
     return dt + zone.utcoffset(dt)
 
@@ -735,6 +736,7 @@ def get_args():
     parser.add_argument("--raid-leave-emoji", default='\U0001F6AA', help="Emoji used for leaving raids (default: %(default)s)")
     parser.add_argument("--raid-full-emoji", default='\U0001F61F', help="Emoji used for full raid channels (default: %(default)s)")
     parser.add_argument("--time-format", default='%Y-%m-%d %I:%M:%S %p', help="The time format to use. (default: %(default)s)")
+    parser.add_argument("--time-zone", default='US/Eastern', help="The time zone to use. (default: %(default)s)")
     args = parser.parse_args()
     return args
 
